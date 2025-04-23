@@ -1,0 +1,101 @@
+name: Build
+run-name: Build
+on:
+  - workflow_dispatch
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      GLAZE_CONFIG: "features.${{ matrix.arrays.config }}.json"
+    strategy:
+      matrix:
+        arrays: [
+          {config: "external"},
+          {config: "internal"}
+        ]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start SSH agent and add key
+        uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.GLAZE_PYTHON_ANALYSIS_SECRET }}      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend deps
+        run: |
+          python -m venv api/.venv
+          ./api/.venv/Scripts/activate
+          python -m pip install --upgrade pip setuptools
+          pip install api/.[dev]
+      - name: Build backend
+        run: |
+          ./api/.venv/Scripts/activate
+          ./scripts/build_backend_win.ps1
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build app
+        run: |
+          cd gui
+          npm install
+          npm run build:win
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arrays.config }}
+          path: gui/dist/glaze-*-setup.exe
+          retention-days: 7
+  
+  build-macOS:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      GLAZE_CONFIG: "features.${{ matrix.arrays.config }}.json"
+    strategy:
+      matrix:
+        arrays: [
+          {config: "external"},
+          {config: "internal"}
+        ]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.GLAZE_PYTHON_ANALYSIS_SECRET }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend deps
+        run: |
+          python -m venv api/.venv
+          source api/.venv/bin/activate
+          python -m pip install --upgrade pip setuptools
+          pip install api/.[dev]
+      - name: Build backend
+        run: |
+          source api/.venv/bin/activate
+          bash scripts/build_backend_macOS.sh
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build frontend
+        run: |
+          cd gui
+          npm install
+          npm run build:mac
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arrays.config }}
+          path: gui/dist/glaze-*.dmg
+          retention-days: 7

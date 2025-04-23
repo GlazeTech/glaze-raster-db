@@ -1,0 +1,34 @@
+# Releases new version. A release entails tagging the main branch with a correct semantic version and uploading a package to PyPi
+name: Tag release
+run-name: tag-release
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  tag-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.GLAZE_CICD_UTILS_SECRET }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Configure Git user
+        run: |
+            git config --local user.email "github-actions[bot]@users.noreply.github.com"
+            git config --local user.name "github-actions[bot]"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Install CI/CD utils
+        run: |
+          pip install git+ssh://git@github.com/GlazeTech/CICD-utils.git
+      - name: Tag if new version
+        run: assert-new-version --version-file gui/package.json --tag-and-push
