@@ -42,7 +42,7 @@ class RasterMetadata(BaseModel):
     device_configuration: dict[str, Any]
 
 
-class FrontendPulse(BaseModel):
+class Measurement(BaseModel):
     time: list[float]
     signal: list[float]
     uuid: UUID
@@ -50,7 +50,7 @@ class FrontendPulse(BaseModel):
 
 
 class RasterResult(BaseModel):
-    pulse: FrontendPulse
+    pulse: Measurement
     point: Point3D
     reference: Optional[UUID] = None
 
@@ -165,7 +165,7 @@ class PulseDB(SQLModel, table=True):
 
     def to_raster_result(self: "PulseDB") -> RasterResult:
         return RasterResult(
-            pulse=FrontendPulse(
+            pulse=Measurement(
                 uuid=self.uuid,
                 timestamp=self.timestamp,
                 time=self.unpack_floats(self.time),
