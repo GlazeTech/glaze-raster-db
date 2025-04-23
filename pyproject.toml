@@ -10,15 +10,17 @@ readme = "README.md"
 requires-python = ">=3.9,<3.12"
 
 dependencies = [
-    "sqlmodel==0.0.24",
-    "pydantic==2.11.3"
+    "sqlmodel>=0.0.24",
+    "pydantic>=2.11.3"
 ]
 
 [project.optional-dependencies]
 dev = [
-    "mypy==1.8.0",
-    "ruff==0.1.13",
-    "pytest==7.0.1",
+    "mypy>=1.15.0",
+    "ruff>=0.11.6",
+    "pytest>=7.0.1",
+    "bumpver>=2024.1130",
+    "pytest-cov>=6.1.1"
 ]
 
 [tool.mypy]
@@ -38,8 +40,8 @@ show_error_codes = true
 
 [tool.ruff]
 target-version = "py39"
-select = ["ALL"]
-ignore = [
+lint.select = ["ALL"]
+lint.ignore = [
     "D100",   # allow undocumented public modules
     "D101",   # allow undocumented public class
     "D102",   # allow undocumented public method
@@ -55,8 +57,38 @@ ignore = [
     "E501",   # don't enforce line length
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "D", # allow missing docs
+    "PLR2004", # allow magic numbers
+    "S101", # allow asserts
+    "SLF001", # allow accessing private methods
+]
+
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+
+[tool.bumpver]
+current_version = "0.1.0"
+version_pattern = "MAJOR.MINOR.PATCH[-TAG]"
+commit_message = "BUMP VERSION {old_version} -> {new_version}"
+tag_message = "v{new_version}"
+tag_scope = "default"
+pre_commit_hook = ""
+post_commit_hook = ""
+commit = true
+tag = false
+push = true
+
+[tool.bumpver.file_patterns]
+"pyproject.toml" = [
+    'current_version = "{version}"',
+    'version = "{version}"',
+]
+"src/glaze/__init__.py" = [
+    '__version__ = "{version}"',
+]
 
 
 [build-system]
