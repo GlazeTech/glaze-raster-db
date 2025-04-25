@@ -1,4 +1,3 @@
-import uuid
 from pathlib import Path
 
 import pytest
@@ -11,60 +10,11 @@ from grdb.crud import (
     load_raster_metadata_from_db,
     update_raster_annotations,
 )
+from grdb.mock import make_dummy_metadata, make_dummy_raster_results
 from grdb.models import (
-    DeviceMetadata,
-    FrontendPulse,
     KVPair,
-    Point3D,
     PulseDB,
-    RasterConfig,
-    RasterMetadata,
-    RasterPattern,
-    RasterResult,
 )
-
-
-def make_dummy_metadata() -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]:
-    config = RasterConfig(
-        patterns=[
-            RasterPattern(
-                start_point=Point3D(x=0, y=0, z=0),
-                end_point=Point3D(x=1, y=1, z=1),
-            )
-        ],
-        stepsize=0.5,
-        reference_point=Point3D(x=0, y=0, z=0),
-        acquire_ref_every=2,
-    )
-    device = DeviceMetadata(
-        device_serial_number="123-ABC",
-        device_firmware_version="v1.0.0",
-    )
-    meta = RasterMetadata(
-        app_version="app1",
-        timestamp=161803398,
-        annotations=[KVPair(key="foo", value="bar")],
-        device_configuration={"mode": "test"},
-    )
-    return (config, device, meta)
-
-
-def make_dummy_raster_results(
-    n_results: int = 2, pulse_length: int = 3
-) -> list[RasterResult]:
-    return [
-        RasterResult(
-            pulse=FrontendPulse(
-                time=[i * 0.1 for i in range(pulse_length)],
-                signal=[float(i) for i in range(pulse_length)],
-                uuid=uuid.uuid4(),
-                timestamp=161803398,
-            ),
-            point=Point3D(x=float(i), y=float(i), z=float(i)),
-            reference=None,
-        )
-        for i in range(n_results)
-    ]
 
 
 def test_pack_unpack_floats_roundtrip() -> None:
