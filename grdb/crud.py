@@ -2,7 +2,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, Table
 from sqlmodel import Session, SQLModel, create_engine, func, select
 
 from grdb.models import (
@@ -24,7 +24,7 @@ def create_and_save_raster_db(
     references: Sequence[RasterResult],
 ) -> None:
     engine = create_engine(f"sqlite:///{path}", echo=False)
-    SQLModel.metadata.create_all(engine)
+    SQLModel.metadata.create_all(engine, tables=_get_tables())
 
     with Session(engine) as session:
         raster_info = RasterInfoDB.from_api(
@@ -113,3 +113,11 @@ def _make_engine(path: Path) -> Engine:
         raise FileNotFoundError(msg)
 
     return create_engine(f"sqlite:///{path}", echo=False)
+
+
+def _get_tables() -> list[Table]:
+    """Get the names of all tables in the database."""
+    return [
+        SQLModel.metadata.tables[table_name]
+        for table_name in [RasterInfoDB.__tablename__, PulseDB.__tablename__]
+    ]

@@ -58,6 +58,7 @@ class RasterResult(BaseModel):
 class RasterInfoDB(SQLModel, table=True):
     """All metadata, configuration, and device info for a raster session."""
 
+    __tablename__ = "raster_info"
     id: UUID = Field(default_factory=uuid4, primary_key=True)
 
     # DeviceMetadata fields
@@ -132,6 +133,7 @@ class RasterInfoDB(SQLModel, table=True):
 
 
 class PulseDB(SQLModel, table=True):
+    __tablename__ = "pulses"
     uuid: UUID = Field(primary_key=True)
     time: bytes  # packed float32 array
     signal: bytes
