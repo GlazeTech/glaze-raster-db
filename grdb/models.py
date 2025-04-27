@@ -4,7 +4,14 @@ from typing import Any, Optional, Union
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel
+from sqlalchemy import MetaData
 from sqlmodel import Field, SQLModel
+
+GRDB_METADATA = MetaData()
+
+
+class GRDBBase(SQLModel, metadata=GRDB_METADATA):
+    """Base class for all GRDB models with an isolated metadata instance."""
 
 
 class DeviceMetadata(BaseModel):
@@ -55,7 +62,7 @@ class RasterResult(BaseModel):
     reference: Optional[UUID] = None
 
 
-class RasterInfoDB(SQLModel, table=True):
+class RasterInfoDB(GRDBBase, table=True):
     """All metadata, configuration, and device info for a raster session."""
 
     __tablename__ = "raster_info"
@@ -132,7 +139,7 @@ class RasterInfoDB(SQLModel, table=True):
         )
 
 
-class PulseDB(SQLModel, table=True):
+class PulseDB(GRDBBase, table=True):
     __tablename__ = "pulses"
     uuid: UUID = Field(primary_key=True)
     time: bytes  # packed float32 array

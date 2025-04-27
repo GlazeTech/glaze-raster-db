@@ -6,6 +6,7 @@ from sqlalchemy import Engine, Table
 from sqlmodel import Session, SQLModel, create_engine, func, select
 
 from grdb.models import (
+    GRDB_METADATA,
     DeviceMetadata,
     KVPair,
     PulseDB,
@@ -24,7 +25,7 @@ def create_and_save_raster_db(
     references: Sequence[RasterResult],
 ) -> None:
     engine = create_engine(f"sqlite:///{path}", echo=False)
-    SQLModel.metadata.create_all(engine, tables=_get_tables())
+    GRDB_METADATA.create_all(engine, tables=_get_tables())
 
     with Session(engine) as session:
         raster_info = RasterInfoDB.from_api(
