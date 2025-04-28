@@ -40,8 +40,12 @@ def test_crud_create_and_load(db_path: Path) -> None:
 
     assert loaded_config == config
     assert loaded_device == device
-    assert loaded_meta == meta
-    assert len(loaded_meta.annotations) == len(meta.annotations)
+
+    assert loaded_meta.annotations == meta.annotations
+    assert loaded_meta.app_version == meta.app_version
+    assert loaded_meta.timestamp == meta.timestamp
+    assert loaded_meta.device_configuration == meta.device_configuration
+
     assert n_ref == len(refs)
     assert n_samp == 0
 

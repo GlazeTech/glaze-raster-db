@@ -44,6 +44,7 @@ class KVPair(BaseModel):
 
 class RasterMetadata(BaseModel):
     app_version: str
+    raster_id: Optional[UUID] = None
     timestamp: int
     annotations: list[KVPair]
     device_configuration: dict[str, Any]
@@ -92,6 +93,7 @@ class RasterInfoDB(GRDBBase, table=True):
         device: "DeviceMetadata",
     ) -> "RasterInfoDB":
         return cls(
+            id=meta.raster_id,
             device_serial_number=device.device_serial_number,
             device_firmware_version=device.device_firmware_version,
             app_version=meta.app_version,
@@ -130,6 +132,7 @@ class RasterInfoDB(GRDBBase, table=True):
 
     def to_raster_metadata(self: "RasterInfoDB") -> RasterMetadata:
         return RasterMetadata(
+            raster_id=self.id,
             app_version=self.app_version,
             timestamp=self.timestamp,
             annotations=[
