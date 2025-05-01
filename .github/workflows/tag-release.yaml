@@ -31,4 +31,4 @@ jobs:
         run: |
           pip install git+ssh://git@github.com/GlazeTech/CICD-utils.git
       - name: Tag if new version
-        run: assert-new-version --version-file gui/package.json --tag-and-push
+        run: assert-new-version --version-file pyproject.toml --tag-and-push
