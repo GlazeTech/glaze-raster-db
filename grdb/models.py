@@ -68,6 +68,8 @@ class CoordinateTransform(BaseModel):
     rotation: float  # rotation from user→machine
     last_used: int  # timestamp of last use (milliseconds since UNIX epoch)
     notes: Optional[str] = None  # optional free text
+
+
 class RasterMetadata(BaseModel):
     app_version: str
     raster_id: Optional[UUID] = None
