@@ -7,6 +7,7 @@ from grdb.models import (
     KVPair,
     Measurement,
     Point3D,
+    Point3DFullyDefined,
     RasterConfig,
     RasterMetadata,
     RasterPattern,
@@ -43,9 +44,12 @@ def make_dummy_metadata() -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]
 def make_dummy_coordinate_transform() -> CoordinateTransform:
     """Create a dummy coordinate transform for testing."""
     return CoordinateTransform(
-        translation=Point3D(x=10.0, y=20.0, z=30.0),
-        rotation=Point3D(x=0.1, y=0.2, z=0.3),
-        scale=Point3D(x=1.5, y=1.5, z=1.5),
+        id=uuid.uuid4(),
+        name="Test Coordinate System",
+        offset=Point3DFullyDefined(x=10.0, y=20.0, z=30.0),
+        rotation=90,
+        last_used=int(time.time() * 1000),
+        notes="Dummy coordinate transform for testing",
     )
 
 

@@ -36,6 +36,12 @@ class Point3D(BaseModel):
     z: Optional[float]
 
 
+class Point3DFullyDefined(BaseModel):
+    x: float
+    y: float
+    z: float
+
+
 class RasterPattern(BaseModel):
     start_point: Point3D
     end_point: Point3D
@@ -56,11 +62,12 @@ class KVPair(BaseModel):
 class CoordinateTransform(BaseModel):
     """Defines a coordinate system transformation between user and machine coordinates."""
 
-    translation: Point3D
-    rotation: Point3D  # Euler angles in radians (rx, ry, rz)
-    scale: Point3D  # Scale factors (sx, sy, sz)
-
-
+    id: UUID  # uuid
+    name: str  # user label
+    offset: Point3DFullyDefined  # offset from user to machine coordinates
+    rotation: float  # rotation from user→machine
+    last_used: int  # timestamp of last use (milliseconds since UNIX epoch)
+    notes: Optional[str] = None  # optional free text
 class RasterMetadata(BaseModel):
     app_version: str
     raster_id: Optional[UUID] = None
@@ -132,7 +139,7 @@ class RasterInfoDB(GRDBBase, table=True):
             ),
             acquire_ref_every=config.acquire_ref_every,
             working_coordinates=(
-                json.dumps(meta.working_coordinates.model_dump())
+                json.dumps(meta.working_coordinates.model_dump(mode="json"))
                 if meta.working_coordinates
                 else None
             ),
