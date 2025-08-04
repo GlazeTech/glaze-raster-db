@@ -70,7 +70,7 @@ convention = "google"
 
 
 [tool.bumpver]
-current_version = "0.2.0"
+current_version = "0.1.0"
 version_pattern = "MAJOR.MINOR.PATCH[-TAG]"
 commit_message = "BUMP VERSION {old_version} -> {new_version}"
 tag_message = "v{new_version}"
@@ -86,7 +86,7 @@ push = true
     'current_version = "{version}"',
     'version = "{version}"',
 ]
-"src/grdb/__init__.py" = [
+"grdb/__init__.py" = [
     '__version__ = "{version}"',
 ]
 
