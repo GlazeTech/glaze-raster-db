@@ -1,12 +1,16 @@
 import json
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Optional
 
-from sqlalchemy import Engine, Table
-from sqlmodel import Session, SQLModel, create_engine, func, select
+from sqlalchemy import Engine
+from sqlalchemy.exc import OperationalError
+from sqlmodel import Session, create_engine, func, select
 
+from grdb.core import create_tables
+from grdb.migrations import MIGRATION_SCRIPTS
 from grdb.models import (
-    GRDB_METADATA,
+    CURRENT_SCHEMA_VERSION,
     DeviceMetadata,
     KVPair,
     PulseDB,
@@ -14,6 +18,7 @@ from grdb.models import (
     RasterInfoDB,
     RasterMetadata,
     RasterResult,
+    SchemaVersion,
 )
 
 
@@ -25,12 +30,14 @@ def create_and_save_raster_db(
     references: Sequence[RasterResult],
 ) -> None:
     engine = create_engine(f"sqlite:///{path}", echo=False)
-    GRDB_METADATA.create_all(engine, tables=_get_tables())
+    create_tables(engine)
 
     with Session(engine) as session:
         raster_info = RasterInfoDB.from_api(
             raster_config, raster_metadata, device_metadata
         )
+
+        session.add(SchemaVersion())
         session.add(raster_info)
         session.commit()
         session.refresh(raster_info)
@@ -113,12 +120,30 @@ def _make_engine(path: Path) -> Engine:
         msg = f"File '{path}' does not exist"
         raise FileNotFoundError(msg)
 
-    return create_engine(f"sqlite:///{path}", echo=False)
+    engine = create_engine(f"sqlite:///{path}", echo=False)
+    _ensure_schema_compatibility(engine)
+    return engine
 
 
-def _get_tables() -> list[Table]:
-    """Get the names of all tables in the database."""
-    return [
-        SQLModel.metadata.tables[table_name]
-        for table_name in [RasterInfoDB.__tablename__, PulseDB.__tablename__]
-    ]
+def _ensure_schema_compatibility(engine: Engine) -> None:
+    """Ensure the database schema is compatible with the current version."""
+    # get current schema version
+    schema_version = _get_schema_version(engine)
+    if schema_version is None:
+        # No schema_version table exists for v0.1.0, corresponding to schema version 1
+        schema_version = 1
+
+    while schema_version < CURRENT_SCHEMA_VERSION:
+        MIGRATION_SCRIPTS[schema_version](engine)
+        schema_version += 1
+
+
+def _get_schema_version(engine: Engine) -> Optional[int]:
+    """Get the current schema version from the database."""
+    with Session(engine) as session:
+        try:
+            version = session.exec(select(SchemaVersion)).first()
+        except OperationalError:  # No schema_version table exists in older DBs
+            return None
+        else:
+            return version.version if version else None
