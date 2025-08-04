@@ -79,8 +79,8 @@ append_pulses_to_db(db_path, sample_pulses)
 # Load metadata and counts
 config, dev_meta, meta, n_refs, n_samples = load_raster_metadata_from_db(db_path)
 print(f"Loaded {n_refs} reference and {n_samples} sample pulses")
-if coords:
-    print(f"Database has coordinate transform with scale: {coords.scale}")
+if meta.working_coordinates:
+    print(f"Database has coordinate transform with scale: {meta.working_coordinates.scale}")
 # You can also access coordinates from the metadata
 if meta.working_coordinates:
     print(f"Metadata contains coordinate transform: {meta.working_coordinates}")
