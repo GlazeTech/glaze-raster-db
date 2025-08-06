@@ -76,7 +76,7 @@ class RasterMetadata(BaseModel):
     timestamp: int
     annotations: list[KVPair]
     device_configuration: dict[str, Any]
-    working_coordinates: Optional[CoordinateTransform] = None
+    user_coordinates: Optional[CoordinateTransform] = None
 
 
 class Measurement(BaseModel):
@@ -115,7 +115,7 @@ class RasterInfoDB(GRDBBase, table=True):
     acquire_ref_every: Optional[int] = None
 
     # Coordinate system transformation (added in v0.2.0)
-    working_coordinates: Optional[str] = None  # JSON string of CoordinateTransform
+    user_coordinates: Optional[str] = None  # JSON string of CoordinateTransform
 
     @classmethod
     def from_api(
@@ -140,9 +140,9 @@ class RasterInfoDB(GRDBBase, table=True):
                 else None
             ),
             acquire_ref_every=config.acquire_ref_every,
-            working_coordinates=(
-                json.dumps(meta.working_coordinates.model_dump(mode="json"))
-                if meta.working_coordinates
+            user_coordinates=(
+                json.dumps(meta.user_coordinates.model_dump(mode="json"))
+                if meta.user_coordinates
                 else None
             ),
         )
@@ -176,14 +176,14 @@ class RasterInfoDB(GRDBBase, table=True):
                 KVPair.model_validate(a) for a in json.loads(self.annotations)
             ],
             device_configuration=json.loads(self.device_configuration),
-            working_coordinates=self.to_coordinate_transform(),
+            user_coordinates=self.to_coordinate_transform(),
         )
 
     def to_coordinate_transform(self: "RasterInfoDB") -> Optional[CoordinateTransform]:
-        """Convert working_coordinates JSON string to CoordinateTransform object."""
-        if self.working_coordinates is None:
+        """Convert user_coordinates JSON string to CoordinateTransform object."""
+        if self.user_coordinates is None:
             return None
-        return CoordinateTransform.model_validate(json.loads(self.working_coordinates))
+        return CoordinateTransform.model_validate(json.loads(self.user_coordinates))
 
 
 class PulseDB(GRDBBase, table=True):

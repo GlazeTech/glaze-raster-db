@@ -36,7 +36,7 @@ def make_dummy_metadata() -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]
         timestamp=161803398,
         annotations=[KVPair(key="foo", value="bar"), KVPair(key="baz", value=1.0)],
         device_configuration={"mode": "test"},
-        working_coordinates=make_dummy_coordinate_transform(),
+        user_coordinates=make_dummy_coordinate_transform(),
     )
     return (config, device, meta)
 

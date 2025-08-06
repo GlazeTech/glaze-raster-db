@@ -46,7 +46,7 @@ def test_crud_create_and_load(db_path: Path) -> None:
     assert loaded_meta.app_version == meta.app_version
     assert loaded_meta.timestamp == meta.timestamp
     assert loaded_meta.device_configuration == meta.device_configuration
-    assert loaded_meta.working_coordinates == meta.working_coordinates
+    assert loaded_meta.user_coordinates == meta.user_coordinates
 
     assert n_ref == len(refs)
     assert n_samp == 0

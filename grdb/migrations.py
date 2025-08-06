@@ -12,11 +12,11 @@ def _migrate_to_v2(engine: Engine) -> None:
     # Create the missing table RasterInfoDB
     create_tables(engine)
 
-    # Add working_coordinates column to raster_info table
+    # Add user_coordinates column to raster_info table
     with engine.connect() as connection:
         connection.execute(
             text(
-                f"ALTER TABLE {RasterInfoDB.__tablename__} ADD COLUMN working_coordinates TEXT"
+                f"ALTER TABLE {RasterInfoDB.__tablename__} ADD COLUMN user_coordinates TEXT"
             )
         )
 
