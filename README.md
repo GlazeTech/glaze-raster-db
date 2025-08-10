@@ -24,6 +24,8 @@ from grdb.models import (
     RasterConfig,
     DeviceMetadata,
     RasterMetadata,
+    CoordinateTransform,
+    Point3D,
     KVPair,
     RasterResult,
 )
@@ -53,6 +55,14 @@ raster_meta = RasterMetadata(
 # Reference pulses
 references: list[RasterResult] = [...]  # gather RasterResult objects
 
+# Optional: Define coordinate system transformation in metadata
+user_coords = CoordinateTransform(
+    translation=Point3D(x=1000.0, y=2000.0, z=0.0),  # Offset in machine units
+    rotation=Point3D(x=0.0, y=0.0, z=0.785398),     # 45° rotation around Z
+    scale=Point3D(x=1000.0, y=1000.0, z=1000.0),    # μm to mm conversion
+)
+raster_meta.user_coordinates = user_coords  # Add to metadata
+
 # Create and populate the database
 create_and_save_raster_db(
     db_path,
@@ -69,6 +79,11 @@ append_pulses_to_db(db_path, sample_pulses)
 # Load metadata and counts
 config, dev_meta, meta, n_refs, n_samples = load_raster_metadata_from_db(db_path)
 print(f"Loaded {n_refs} reference and {n_samples} sample pulses")
+if meta.user_coordinates:
+    print(f"Database has coordinate transform with scale: {meta.user_coordinates.scale}")
+# You can also access coordinates from the metadata
+if meta.user_coordinates:
+    print(f"Metadata contains coordinate transform: {meta.user_coordinates}")
 
 # Load a batch of pulses
 refs_batch, samples_batch = load_pulse_batch_from_db(db_path, offset=0, limit=50)

@@ -9,9 +9,20 @@ from sqlmodel import Field, SQLModel
 
 GRDB_METADATA = MetaData()
 
+# Current schema version - increment when making breaking changes
+CURRENT_SCHEMA_VERSION = 2  # v0.1.0 = 1, v0.2.0 = 2
+
 
 class GRDBBase(SQLModel, metadata=GRDB_METADATA):
     """Base class for all GRDB models with an isolated metadata instance."""
+
+
+class SchemaVersion(GRDBBase, table=True):
+    """Tracks the schema version of the database."""
+
+    __tablename__ = "schema_version"
+    id: int = Field(primary_key=True)
+    version: int = Field(default=CURRENT_SCHEMA_VERSION)
 
 
 class DeviceMetadata(BaseModel):
@@ -23,6 +34,12 @@ class Point3D(BaseModel):
     x: Optional[float]
     y: Optional[float]
     z: Optional[float]
+
+
+class Point3DFullyDefined(BaseModel):
+    x: float
+    y: float
+    z: float
 
 
 class RasterPattern(BaseModel):
@@ -42,12 +59,24 @@ class KVPair(BaseModel):
     value: Union[str, int, float]
 
 
+class CoordinateTransform(BaseModel):
+    """Defines a coordinate system transformation between user and machine coordinates."""
+
+    id: UUID  # uuid
+    name: str  # user label
+    offset: Point3DFullyDefined  # offset from user to machine coordinates
+    rotation: float  # rotation from user→machine
+    last_used: int  # timestamp of last use (milliseconds since UNIX epoch)
+    notes: Optional[str] = None  # optional free text
+
+
 class RasterMetadata(BaseModel):
     app_version: str
     raster_id: Optional[UUID] = None
     timestamp: int
     annotations: list[KVPair]
     device_configuration: dict[str, Any]
+    user_coordinates: Optional[CoordinateTransform] = None
 
 
 class Measurement(BaseModel):
@@ -85,6 +114,9 @@ class RasterInfoDB(GRDBBase, table=True):
     reference_point: Optional[str] = None  # JSON string
     acquire_ref_every: Optional[int] = None
 
+    # Coordinate system transformation (added in v0.2.0)
+    user_coordinates: Optional[str] = None  # JSON string of CoordinateTransform
+
     @classmethod
     def from_api(
         cls: type["RasterInfoDB"],
@@ -108,6 +140,11 @@ class RasterInfoDB(GRDBBase, table=True):
                 else None
             ),
             acquire_ref_every=config.acquire_ref_every,
+            user_coordinates=(
+                json.dumps(meta.user_coordinates.model_dump(mode="json"))
+                if meta.user_coordinates
+                else None
+            ),
         )
 
     def to_raster_config(self: "RasterInfoDB") -> RasterConfig:
@@ -139,7 +176,14 @@ class RasterInfoDB(GRDBBase, table=True):
                 KVPair.model_validate(a) for a in json.loads(self.annotations)
             ],
             device_configuration=json.loads(self.device_configuration),
+            user_coordinates=self.to_coordinate_transform(),
         )
+
+    def to_coordinate_transform(self: "RasterInfoDB") -> Optional[CoordinateTransform]:
+        """Convert user_coordinates JSON string to CoordinateTransform object."""
+        if self.user_coordinates is None:
+            return None
+        return CoordinateTransform.model_validate(json.loads(self.user_coordinates))
 
 
 class PulseDB(GRDBBase, table=True):

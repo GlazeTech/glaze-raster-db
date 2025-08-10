@@ -2,10 +2,12 @@ import time
 import uuid
 
 from grdb.models import (
+    CoordinateTransform,
     DeviceMetadata,
     KVPair,
     Measurement,
     Point3D,
+    Point3DFullyDefined,
     RasterConfig,
     RasterMetadata,
     RasterPattern,
@@ -34,8 +36,21 @@ def make_dummy_metadata() -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]
         timestamp=161803398,
         annotations=[KVPair(key="foo", value="bar"), KVPair(key="baz", value=1.0)],
         device_configuration={"mode": "test"},
+        user_coordinates=make_dummy_coordinate_transform(),
     )
     return (config, device, meta)
+
+
+def make_dummy_coordinate_transform() -> CoordinateTransform:
+    """Create a dummy coordinate transform for testing."""
+    return CoordinateTransform(
+        id=uuid.uuid4(),
+        name="Test Coordinate System",
+        offset=Point3DFullyDefined(x=10.0, y=20.0, z=30.0),
+        rotation=90,
+        last_used=int(time.time() * 1000),
+        notes="Dummy coordinate transform for testing",
+    )
 
 
 def make_dummy_raster_results(

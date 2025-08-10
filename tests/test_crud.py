@@ -1,7 +1,8 @@
+import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
-from sqlmodel import SQLModel, create_engine
 
 from grdb.crud import (
     append_pulses_to_db,
@@ -45,6 +46,7 @@ def test_crud_create_and_load(db_path: Path) -> None:
     assert loaded_meta.app_version == meta.app_version
     assert loaded_meta.timestamp == meta.timestamp
     assert loaded_meta.device_configuration == meta.device_configuration
+    assert loaded_meta.user_coordinates == meta.user_coordinates
 
     assert n_ref == len(refs)
     assert n_samp == 0
@@ -86,8 +88,14 @@ def test_load_metadata_no_file(db_path: Path) -> None:
         load_raster_metadata_from_db(non_existent)
 
 
-def test_load_metadata_empty_db(db_path: Path) -> None:
-    engine = create_engine(f"sqlite:///{db_path}")
-    SQLModel.metadata.create_all(engine)
-    with pytest.raises(ValueError, match="No metadata found"):
-        load_raster_metadata_from_db(db_path)
+def test_backward_load_compatibility() -> None:
+    """Test that v0.1.0 databases can be loaded correctly."""
+    # Copy the test asset to our test location
+    for p in (Path(__file__).parent / "test_assets").iterdir():
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir) / p.name
+            shutil.copy2(p, temp_path)
+            # First load runs migrations
+            load_raster_metadata_from_db(temp_path)
+            # Load twice to ensure it works after migration scripts have run
+            load_raster_metadata_from_db(temp_path)

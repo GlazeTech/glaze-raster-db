@@ -11,12 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Set up SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.GLAZE_CICD_UTILS_SECRET }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan github.com >> ~/.ssh/known_hosts
+      - name: Start SSH agent and add key
+        uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.GLAZE_CICD_UTILS_SECRET }}
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Configure Git user
