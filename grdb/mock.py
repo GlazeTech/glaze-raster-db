@@ -2,6 +2,8 @@ import time
 import uuid
 
 from grdb.models import (
+    AxesMapping,
+    AxisMap,
     CoordinateTransform,
     DeviceMetadata,
     KVPair,
@@ -47,7 +49,11 @@ def make_dummy_coordinate_transform() -> CoordinateTransform:
         id=uuid.uuid4(),
         name="Test Coordinate System",
         offset=Point3DFullyDefined(x=10.0, y=20.0, z=30.0),
-        rotation=90,
+        mapping=AxesMapping(
+            x=AxisMap(axis="z", sign=1),
+            y=AxisMap(axis="y", sign=-1),
+            z=AxisMap(axis="x", sign=1),
+        ),
         last_used=int(time.time() * 1000),
         notes="Dummy coordinate transform for testing",
     )

@@ -1,9 +1,9 @@
 import json
 import struct
-from typing import Any, Optional, Union
+from typing import Any, Literal, Optional, Union
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy import MetaData
 from sqlmodel import Field, SQLModel
 
@@ -11,6 +11,8 @@ GRDB_METADATA = MetaData()
 
 # Current schema version - increment when making breaking changes
 CURRENT_SCHEMA_VERSION = 2  # v0.1.0 = 1, v0.2.0 = 2
+Axis = Literal["x", "y", "z"]
+Sign = Literal[1, -1]
 
 
 class GRDBBase(SQLModel, metadata=GRDB_METADATA):
@@ -59,13 +61,33 @@ class KVPair(BaseModel):
     value: Union[str, int, float]
 
 
+class AxisMap(BaseModel):
+    axis: Axis
+    sign: Sign
+
+
+class AxesMapping(BaseModel):
+    x: AxisMap
+    y: AxisMap
+    z: AxisMap
+
+    @model_validator(mode="after")
+    def validate_unique_axis_mapping(self) -> "AxesMapping":
+        """Ensure each axis (x, y, z) maps to a unique target axis."""
+        axes = [self.x.axis, self.y.axis, self.z.axis]
+        if len(axes) != len(set(axes)):
+            msg = "Each axis (x, y, z) must map to a unique target axis"
+            raise ValueError(msg)
+        return self
+
+
 class CoordinateTransform(BaseModel):
     """Defines a coordinate system transformation between user and machine coordinates."""
 
     id: UUID  # uuid
     name: str  # user label
     offset: Point3DFullyDefined  # offset from user to machine coordinates
-    rotation: float  # rotation from user→machine
+    mapping: AxesMapping
     last_used: int  # timestamp of last use (milliseconds since UNIX epoch)
     notes: Optional[str] = None  # optional free text
 
