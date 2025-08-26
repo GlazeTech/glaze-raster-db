@@ -5,6 +5,7 @@ from typing import Optional
 
 from sqlalchemy import Engine
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.pool import NullPool
 from sqlmodel import Session, create_engine, func, select
 
 from grdb.core import create_tables
@@ -29,7 +30,7 @@ def create_and_save_raster_db(
     raster_metadata: RasterMetadata,
     references: Sequence[RasterResult],
 ) -> None:
-    engine = create_engine(f"sqlite:///{path}", echo=False)
+    engine = create_engine(f"sqlite:///{path}", echo=False, poolclass=NullPool)
     create_tables(engine)
 
     with Session(engine) as session:
@@ -120,7 +121,7 @@ def _make_engine(path: Path) -> Engine:
         msg = f"File '{path}' does not exist"
         raise FileNotFoundError(msg)
 
-    engine = create_engine(f"sqlite:///{path}", echo=False)
+    engine = create_engine(f"sqlite:///{path}", echo=False, poolclass=NullPool)
     _ensure_schema_compatibility(engine)
     return engine
 
