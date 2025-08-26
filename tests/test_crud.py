@@ -99,3 +99,27 @@ def test_backward_load_compatibility() -> None:
             load_raster_metadata_from_db(temp_path)
             # Load twice to ensure it works after migration scripts have run
             load_raster_metadata_from_db(temp_path)
+
+
+def test_create_db_and_unlink_file(db_path: Path) -> None:
+    """Test creating a database file, writing to it, and then unlinking it."""
+    # Create database with some data
+    config, device, meta = make_dummy_metadata()
+    refs = make_dummy_raster_results()
+
+    # Create and save the database
+    create_and_save_raster_db(db_path, config, device, meta, refs)
+
+    # Verify the file was created and has content
+    assert db_path.exists()
+    assert db_path.stat().st_size > 0
+
+    # Now try to unlink (delete) the file
+    db_path.unlink()
+
+    # Verify the file is gone
+    assert not db_path.exists()
+
+    # Verify that trying to read from the deleted file raises FileNotFoundError
+    with pytest.raises(FileNotFoundError):
+        load_raster_metadata_from_db(db_path)
