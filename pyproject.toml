@@ -1,6 +1,6 @@
 [project]
 name = "grdb"
-version = "0.3.0"
+version = "0.3.1"
 description = "README.md"
 authors = [
     { name = "Bjørn Mølvig", email = "bjoernmoelvig@gmail.com" },
@@ -70,7 +70,7 @@ convention = "google"
 
 
 [tool.bumpver]
-current_version = "0.3.0"
+current_version = "0.3.1"
 version_pattern = "MAJOR.MINOR.PATCH[-TAG]"
 commit_message = "BUMP VERSION {old_version} -> {new_version}"
 tag_message = "v{new_version}"
