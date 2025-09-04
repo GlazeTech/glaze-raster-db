@@ -4,7 +4,7 @@ from typing import Any, Literal, Optional, Union
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, model_validator
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 GRDB_METADATA = MetaData()
@@ -280,3 +280,28 @@ class PulseDB(GRDBBase, table=True):
         """
         count = len(blob) // 4
         return list(struct.unpack(f"<{count}f", blob))
+
+
+class PulseCompositionTable(GRDBBase, table=True):
+    """Associates a derived pulse with its source pulses.
+
+    A "final" (stitched) pulse is represented as a normal PulseDB. Its composition is captured here by linking the
+    derived pulse UUID to one or more source pulse UUIDs in a defined order.
+    """
+
+    __tablename__ = "pulse_composition"
+    __table_args__ = (
+        UniqueConstraint("derived_uuid", "position"),
+        UniqueConstraint("derived_uuid", "source_uuid"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    derived_uuid: UUID = Field(foreign_key="pulses.uuid", index=True)
+    source_uuid: UUID = Field(foreign_key="pulses.uuid", index=True)
+    position: int  # position/order of the source within the composition
+
+
+class PulseComposition(BaseModel):
+    derived_uuid: UUID
+    source_uuid: UUID
+    position: int

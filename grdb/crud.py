@@ -14,6 +14,8 @@ from grdb.models import (
     CURRENT_SCHEMA_VERSION,
     DeviceMetadata,
     KVPair,
+    PulseComposition,
+    PulseCompositionTable,
     PulseDB,
     RasterConfig,
     RasterInfoDB,
@@ -93,7 +95,13 @@ def load_pulse_batch_from_db(
     limit: int,
 ) -> tuple[Sequence[PulseDB], Sequence[PulseDB]]:
     with Session(_make_engine(path)) as session:
-        stmt = select(PulseDB).offset(offset).limit(limit)
+        # Final pulses are those not used as a source in any composition
+        stmt = (
+            select(PulseDB)
+            .where(~PulseDB.uuid.in_(select(PulseCompositionTable.source_uuid)))  # type: ignore[attr-defined]
+            .offset(offset)
+            .limit(limit)
+        )
         pulses = session.exec(stmt).all()
         refs = [p for p in pulses if p.is_reference]
         samples = [p for p in pulses if not p.is_reference]
@@ -114,6 +122,30 @@ def update_raster_annotations(
         info.annotations = json.dumps([a.model_dump() for a in annotations])
         session.add(info)
         session.commit()
+
+
+def add_pulse_compositions_to_db(
+    path: Path,
+    compositions: Sequence[PulseComposition],
+) -> None:
+    """Append multiple composition groups efficiently."""
+    with Session(_make_engine(path)) as session:
+        composition_objs = [
+            PulseCompositionTable(
+                derived_uuid=c.derived_uuid,
+                source_uuid=c.source_uuid,
+                position=c.position,
+            )
+            for c in compositions
+        ]
+        session.add_all(composition_objs)
+        session.commit()
+
+
+def read_pulse_compositions_from_db(path: Path) -> Sequence[PulseCompositionTable]:
+    with Session(_make_engine(path)) as session:
+        stmt = select(PulseCompositionTable)
+        return session.exec(stmt).all()
 
 
 def _make_engine(path: Path) -> Engine:

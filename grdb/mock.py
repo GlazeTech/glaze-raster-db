@@ -10,6 +10,7 @@ from grdb.models import (
     Measurement,
     Point3D,
     Point3DFullyDefined,
+    PulseComposition,
     RasterConfig,
     RasterMetadata,
     RasterPattern,
@@ -75,3 +76,25 @@ def make_dummy_raster_results(
         )
         for i in range(n_results)
     ]
+
+
+def make_dummy_composed_raster_result(
+    n_composed: int,
+) -> tuple[RasterResult, list[RasterResult], list[PulseComposition]]:
+    """Create a list of dummy RasterResults and a PulseComposition linking them.
+
+    Args:
+        n_composed: Number of component pulses to compose into a final pulse.
+    """
+    pulse_parts = make_dummy_raster_results(n_results=n_composed, pulse_length=2)
+    final_pulse = make_dummy_raster_results(n_results=1, pulse_length=4)[0]
+
+    compositions = [
+        PulseComposition(
+            derived_uuid=final_pulse.pulse.uuid,
+            source_uuid=part.pulse.uuid,
+            position=i,
+        )
+        for i, part in enumerate(pulse_parts)
+    ]
+    return final_pulse, pulse_parts, compositions

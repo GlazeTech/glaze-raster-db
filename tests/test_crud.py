@@ -3,17 +3,24 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from grdb.crud import (
+    add_pulse_compositions_to_db,
     append_pulses_to_db,
     create_and_save_raster_db,
     load_pulse_batch_from_db,
     load_raster_metadata_from_db,
     update_raster_annotations,
 )
-from grdb.mock import make_dummy_metadata, make_dummy_raster_results
+from grdb.mock import (
+    make_dummy_composed_raster_result,
+    make_dummy_metadata,
+    make_dummy_raster_results,
+)
 from grdb.models import (
     KVPair,
+    PulseComposition,
     PulseDB,
 )
 
@@ -101,6 +108,35 @@ def test_backward_load_compatibility() -> None:
             load_raster_metadata_from_db(temp_path)
 
 
+def test_load_pulse_batch_excludes_composed_pulses(db_path: Path) -> None:
+    """Test that load_pulse_batch_from_db only loads 'final' pulses, not those used as compositions."""
+    config, device, meta = make_dummy_metadata()
+    refs = make_dummy_raster_results()
+
+    create_and_save_raster_db(db_path, config, device, meta, refs)
+
+    sams = make_dummy_raster_results()
+    # Create a final "stitched" pulse from component parts
+    final_pulse, pulse_parts, compositions = make_dummy_composed_raster_result(
+        n_composed=3
+    )
+    append_pulses_to_db(db_path, [*pulse_parts, *sams, final_pulse])
+    add_pulse_compositions_to_db(db_path, compositions)
+
+    # Load pulses using the batch function
+    refs_loaded, samples_loaded = load_pulse_batch_from_db(db_path, offset=0, limit=100)
+
+    # Check that the UUIDs of loaded pulses match the expected ones
+    expected_ref_uuids = [r.pulse.uuid for r in refs]
+    expected_sample_uuids = [s.pulse.uuid for s in sams] + [final_pulse.pulse.uuid]
+
+    loaded_ref_uuids = [r.uuid for r in refs_loaded]
+    loaded_sample_uuids = [s.uuid for s in samples_loaded]
+
+    assert set(loaded_ref_uuids) == set(expected_ref_uuids)
+    assert set(loaded_sample_uuids) == set(expected_sample_uuids)
+
+
 def test_create_db_and_unlink_file(db_path: Path) -> None:
     """Test creating a database file, writing to it, and then unlinking it."""
     # Create database with some data
@@ -123,3 +159,28 @@ def test_create_db_and_unlink_file(db_path: Path) -> None:
     # Verify that trying to read from the deleted file raises FileNotFoundError
     with pytest.raises(FileNotFoundError):
         load_raster_metadata_from_db(db_path)
+
+
+def test_pulse_composition_unique_derived_position_constraint(db_path: Path) -> None:
+    """Test that the unique constraint on (derived_uuid, position) is enforced."""
+    config, device, meta = make_dummy_metadata()
+    refs = make_dummy_raster_results()
+
+    create_and_save_raster_db(db_path, config, device, meta, refs)
+
+    # Create test pulses
+    pulse_parts = make_dummy_raster_results(n_results=2)
+    final_pulse = make_dummy_raster_results(n_results=1)[0]
+    final_pulse, pulse_parts, compositions = make_dummy_composed_raster_result(
+        n_composed=2
+    )
+    # Add the pulses to the database
+    append_pulses_to_db(db_path, [*pulse_parts, final_pulse])
+
+    # Create two compositions with the same derived_uuid and position
+    for i in range(len(compositions)):
+        compositions[i].position = 0  # Force same position
+
+    # This should raise an IntegrityError due to the unique constraint
+    with pytest.raises(IntegrityError):
+        add_pulse_compositions_to_db(db_path, compositions)
