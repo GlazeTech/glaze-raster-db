@@ -101,11 +101,32 @@ class RasterMetadata(BaseModel):
     user_coordinates: Optional[CoordinateTransform] = None
 
 
-class Measurement(BaseModel):
+class BaseMeasurement(BaseModel):
     time: list[float]
     signal: list[float]
     uuid: UUID
     timestamp: int
+
+
+class PulseCompositionView(BaseModel):
+    """User-facing composition item for a stitched pulse.
+
+    Contains the source pulse data and metadata about how it was used.
+    """
+
+    pulse: BaseMeasurement
+    position: int
+    shift: float
+
+
+class Measurement(BaseMeasurement):
+    """User-facing pulse model that may include stitching information.
+
+    When a pulse is a stitched result, ``stitching_info`` lists the
+    component pulses in their enumerated order with the applied shifts.
+    """
+
+    stitching_info: Optional[list[PulseCompositionView]] = None
 
 
 class RasterResult(BaseModel):

@@ -23,6 +23,13 @@ from grdb.models import (
     RasterResult,
     SchemaVersion,
 )
+from grdb.pulse_utils import (
+    _build_stitching_info,
+    _get_compositions_by_derived,
+    _get_final_pulses,
+    _get_source_measurements,
+    _pulse_db_to_raster_result,
+)
 
 
 def create_and_save_raster_db(
@@ -32,6 +39,18 @@ def create_and_save_raster_db(
     raster_metadata: RasterMetadata,
     references: Sequence[RasterResult],
 ) -> None:
+    """Create a new raster DB file and seed it.
+
+    - Creates tables and writes metadata/configuration.
+    - Inserts the given reference pulses as initial data.
+
+    Args:
+        path: Destination SQLite file path.
+        raster_config: Acquisition configuration.
+        device_metadata: Device information.
+        raster_metadata: Session metadata.
+        references: Initial reference pulses to store.
+    """
     engine = create_engine(f"sqlite:///{path}", echo=False, poolclass=NullPool)
     create_tables(engine)
 
@@ -56,6 +75,12 @@ def append_pulses_to_db(
     path: Path,
     pulses: Sequence[RasterResult],
 ) -> None:
+    """Append non-reference pulses to an existing raster DB.
+
+    Args:
+        path: SQLite DB file path.
+        pulses: Sample pulses to insert.
+    """
     with Session(_make_engine(path)) as session:
         pulse_objs = [PulseDB.from_raster_result(p, is_reference=False) for p in pulses]
         session.add_all(pulse_objs)
@@ -65,6 +90,16 @@ def append_pulses_to_db(
 def load_raster_metadata_from_db(
     path: Path,
 ) -> tuple[RasterConfig, DeviceMetadata, RasterMetadata, int, int]:
+    """Load configuration, device, and session metadata from the DB.
+
+    Returns the metadata along with counts of reference and sample pulses.
+
+    Args:
+        path: SQLite DB file path.
+
+    Returns:
+        (raster_config, device_metadata, raster_metadata, n_refs, n_samples)
+    """
     with Session(_make_engine(path)) as session:
         stmt = select(RasterInfoDB).limit(1)
         info = session.exec(stmt).first()
@@ -93,25 +128,46 @@ def load_pulse_batch_from_db(
     path: Path,
     offset: int,
     limit: int,
-) -> tuple[Sequence[PulseDB], Sequence[PulseDB]]:
+) -> tuple[Sequence[RasterResult], Sequence[RasterResult]]:
+    """Load a batch of user-facing pulses with stitching info.
+
+    Returns two lists of RasterResult objects: references and samples. Only
+    final pulses (those not used as sources in any composition) are included.
+    If a pulse is stitched from components, its ``pulse.stitching_info``
+    contains ordered source pulse metadata.
+    """
     with Session(_make_engine(path)) as session:
-        # Final pulses are those not used as a source in any composition
-        stmt = (
-            select(PulseDB)
-            .where(~PulseDB.uuid.in_(select(PulseCompositionTable.source_uuid)))  # type: ignore[attr-defined]
-            .offset(offset)
-            .limit(limit)
-        )
-        pulses = session.exec(stmt).all()
-        refs = [p for p in pulses if p.is_reference]
-        samples = [p for p in pulses if not p.is_reference]
-        return refs, samples
+        pulses = _get_final_pulses(session, offset=offset, limit=limit)
+        if not pulses:
+            return [], []
+
+        derived_ids = [p.uuid for p in pulses]
+        comps_by_derived = _get_compositions_by_derived(session, derived_ids)
+        source_ids = {
+            row.source_uuid for rows in comps_by_derived.values() for row in rows
+        }
+        sources_by_uuid = _get_source_measurements(session, source_ids)
+
+        ref_results: list[RasterResult] = []
+        sample_results: list[RasterResult] = []
+        for p in pulses:
+            stitching = _build_stitching_info(p.uuid, comps_by_derived, sources_by_uuid)
+            result = _pulse_db_to_raster_result(p, stitching)
+            (ref_results if p.is_reference else sample_results).append(result)
+
+        return ref_results, sample_results
 
 
 def update_raster_annotations(
     path: Path,
     annotations: list[KVPair],
 ) -> None:
+    """Replace the annotations in the DB with the provided list.
+
+    Args:
+        path: SQLite DB file path.
+        annotations: New annotations to persist.
+    """
     with Session(_make_engine(path)) as session:
         stmt = select(RasterInfoDB).limit(1)
         info = session.exec(stmt).first()
@@ -138,12 +194,18 @@ def add_pulse_compositions_to_db(
 
 
 def read_pulse_compositions_from_db(path: Path) -> Sequence[PulseCompositionTable]:
+    """Read all pulse composition rows from the DB.
+
+    Args:
+        path: SQLite DB file path.
+    """
     with Session(_make_engine(path)) as session:
         stmt = select(PulseCompositionTable)
         return session.exec(stmt).all()
 
 
 def _make_engine(path: Path) -> Engine:
+    """Create an Engine for the DB file and ensure schema compatibility."""
     if not path.exists():
         msg = f"File '{path}' does not exist"
         raise FileNotFoundError(msg)

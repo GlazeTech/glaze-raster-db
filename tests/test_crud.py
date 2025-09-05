@@ -126,8 +126,8 @@ def test_load_pulse_batch_excludes_composed_pulses(db_path: Path) -> None:
     expected_ref_uuids = [r.pulse.uuid for r in refs]
     expected_sample_uuids = [s.pulse.uuid for s in sams] + [final_pulse.pulse.uuid]
 
-    loaded_ref_uuids = [r.uuid for r in refs_loaded]
-    loaded_sample_uuids = [s.uuid for s in samples_loaded]
+    loaded_ref_uuids = [r.pulse.uuid for r in refs_loaded]
+    loaded_sample_uuids = [s.pulse.uuid for s in samples_loaded]
 
     assert set(loaded_ref_uuids) == set(expected_ref_uuids)
     assert set(loaded_sample_uuids) == set(expected_sample_uuids)
