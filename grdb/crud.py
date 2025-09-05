@@ -131,12 +131,7 @@ def add_pulse_compositions_to_db(
     """Append multiple composition groups efficiently."""
     with Session(_make_engine(path)) as session:
         composition_objs = [
-            PulseCompositionTable(
-                derived_uuid=c.derived_uuid,
-                source_uuid=c.source_uuid,
-                position=c.position,
-            )
-            for c in compositions
+            PulseCompositionTable.from_pulse_composition(c) for c in compositions
         ]
         session.add_all(composition_objs)
         session.commit()

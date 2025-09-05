@@ -298,10 +298,24 @@ class PulseCompositionTable(GRDBBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     derived_uuid: UUID = Field(foreign_key="pulses.uuid", index=True)
     source_uuid: UUID = Field(foreign_key="pulses.uuid", index=True)
-    position: int  # position/order of the source within the composition
+    position: int
+    shift: float
+
+    @classmethod
+    def from_pulse_composition(
+        cls: type["PulseCompositionTable"],
+        composition: "PulseComposition",
+    ) -> "PulseCompositionTable":
+        return cls(
+            derived_uuid=composition.derived_uuid,
+            source_uuid=composition.source_uuid,
+            position=composition.position,
+            shift=composition.shift,
+        )
 
 
 class PulseComposition(BaseModel):
     derived_uuid: UUID
     source_uuid: UUID
     position: int
+    shift: float

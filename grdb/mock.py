@@ -94,6 +94,7 @@ def make_dummy_composed_raster_result(
             derived_uuid=final_pulse.pulse.uuid,
             source_uuid=part.pulse.uuid,
             position=i,
+            shift=i * 10e-12,
         )
         for i, part in enumerate(pulse_parts)
     ]

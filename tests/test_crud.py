@@ -18,11 +18,7 @@ from grdb.mock import (
     make_dummy_metadata,
     make_dummy_raster_results,
 )
-from grdb.models import (
-    KVPair,
-    PulseComposition,
-    PulseDB,
-)
+from grdb.models import KVPair, PulseDB
 
 
 def test_pack_unpack_floats_roundtrip() -> None:
