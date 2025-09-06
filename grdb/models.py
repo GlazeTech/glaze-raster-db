@@ -108,7 +108,7 @@ class BaseMeasurement(BaseModel):
     timestamp: int
 
 
-class PulseCompositionView(BaseModel):
+class PulseComposition(BaseModel):
     """User-facing composition item for a stitched pulse.
 
     Contains the source pulse data and metadata about how it was used.
@@ -126,7 +126,7 @@ class Measurement(BaseMeasurement):
     component pulses in their enumerated order with the applied shifts.
     """
 
-    stitching_info: Optional[list[PulseCompositionView]] = None
+    derived_from: Optional[list[PulseComposition]] = None
 
 
 class RasterResult(BaseModel):
@@ -262,6 +262,24 @@ class PulseDB(GRDBBase, table=True):
             reference=result.reference,
         )
 
+    @classmethod
+    def from_base_measurement(
+        cls: type["PulseDB"], measurement: "BaseMeasurement"
+    ) -> "PulseDB":
+        time_bytes = cls.pack_floats(measurement.time)
+        signal_bytes = cls.pack_floats(measurement.signal)
+        return cls(
+            is_reference=False,
+            time=time_bytes,
+            signal=signal_bytes,
+            timestamp=measurement.timestamp,
+            uuid=measurement.uuid,
+            x=None,
+            y=None,
+            z=None,
+            reference=None,
+        )
+
     def to_raster_result(self: "PulseDB") -> RasterResult:
         return RasterResult(
             pulse=Measurement(
@@ -312,31 +330,12 @@ class PulseCompositionTable(GRDBBase, table=True):
 
     __tablename__ = "pulse_composition"
     __table_args__ = (
-        UniqueConstraint("derived_uuid", "position"),
-        UniqueConstraint("derived_uuid", "source_uuid"),
+        UniqueConstraint("final_uuid", "position"),
+        UniqueConstraint("final_uuid", "source_uuid"),
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    derived_uuid: UUID = Field(foreign_key="pulses.uuid", index=True)
+    final_uuid: UUID = Field(foreign_key="pulses.uuid", index=True)
     source_uuid: UUID = Field(foreign_key="pulses.uuid", index=True)
-    position: int
-    shift: float
-
-    @classmethod
-    def from_pulse_composition(
-        cls: type["PulseCompositionTable"],
-        composition: "PulseComposition",
-    ) -> "PulseCompositionTable":
-        return cls(
-            derived_uuid=composition.derived_uuid,
-            source_uuid=composition.source_uuid,
-            position=composition.position,
-            shift=composition.shift,
-        )
-
-
-class PulseComposition(BaseModel):
-    derived_uuid: UUID
-    source_uuid: UUID
     position: int
     shift: float

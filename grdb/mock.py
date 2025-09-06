@@ -1,9 +1,11 @@
+import random
 import time
 import uuid
 
 from grdb.models import (
     AxesMapping,
     AxisMap,
+    BaseMeasurement,
     CoordinateTransform,
     DeviceMetadata,
     KVPair,
@@ -61,15 +63,12 @@ def make_dummy_coordinate_transform() -> CoordinateTransform:
 
 
 def make_dummy_raster_results(
-    n_results: int = 2, pulse_length: int = 3
+    n_results: int = 2, pulse_length: int = 3, composed_of_n: int = 0
 ) -> list[RasterResult]:
     return [
         RasterResult(
-            pulse=Measurement(
-                time=[i * 0.1 for i in range(pulse_length)],
-                signal=[float(i) for i in range(pulse_length)],
-                uuid=uuid.uuid4(),
-                timestamp=int(time.time() * 1000),  # Time in ms since Unix epoch
+            pulse=make_dummy_measurement(
+                pulse_length=pulse_length, composed_of_n=composed_of_n
             ),
             point=Point3D(x=float(i), y=float(i), z=float(i)),
             reference=None,
@@ -78,24 +77,40 @@ def make_dummy_raster_results(
     ]
 
 
-def make_dummy_composed_raster_result(
-    n_composed: int,
-) -> tuple[RasterResult, list[RasterResult], list[PulseComposition]]:
-    """Create a list of dummy RasterResults and a PulseComposition linking them.
+def make_dummy_measurement(
+    pulse_length: int = 2, composed_of_n: int = 0
+) -> Measurement:
+    composition = (
+        make_dummy_composition(composed_of_n=composed_of_n, pulse_length=pulse_length)
+        if composed_of_n > 0
+        else None
+    )
+    return Measurement(
+        time=[1.0 * i for i in range(pulse_length)],
+        signal=[random.random() for _ in range(pulse_length)],  # noqa: S311
+        uuid=uuid.uuid4(),
+        timestamp=int(time.time() * 1000),  # Time in ms since Unix epoch
+        derived_from=composition,
+    )
 
-    Args:
-        n_composed: Number of component pulses to compose into a final pulse.
-    """
-    pulse_parts = make_dummy_raster_results(n_results=n_composed, pulse_length=2)
-    final_pulse = make_dummy_raster_results(n_results=1, pulse_length=4)[0]
 
-    compositions = [
+def make_dummy_composition(
+    composed_of_n: int = 2, pulse_length: int = 2
+) -> list[PulseComposition]:
+    return [
         PulseComposition(
-            derived_uuid=final_pulse.pulse.uuid,
-            source_uuid=part.pulse.uuid,
+            pulse=make_dummy_base_measurement(pulse_length=pulse_length),
             position=i,
             shift=i * 10e-12,
         )
-        for i, part in enumerate(pulse_parts)
+        for i in range(composed_of_n)
     ]
-    return final_pulse, pulse_parts, compositions
+
+
+def make_dummy_base_measurement(pulse_length: int = 2) -> BaseMeasurement:
+    return BaseMeasurement(
+        time=[1.0 * i for i in range(pulse_length)],
+        signal=[random.random() for _ in range(pulse_length)],  # noqa: S311
+        uuid=uuid.uuid4(),
+        timestamp=int(time.time() * 1000),  # Time in ms since Unix epoch
+    )

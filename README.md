@@ -9,6 +9,21 @@ A Python library for creating and managing raster SQLite databases of pulse meas
 pip install grdb @ git+ssh://git@github.com/GlazeTech/glaze-raster-db.git@<VERSION_NUMBER>",
 ```
 
+
+## Pulse Composition
+
+Some pulses are stitched from one or more source pulses. In the public API this is represented by `RasterResult.pulse.derived_from`, which is a list of `PulseComposition` items containing the source `BaseMeasurement`, its `position` in the stitched order, and the applied `shift`.
+
+- Persistence: When inserting pulses via `create_and_save_raster_db` (references) or `add_pulses` (samples), the library:
+  - Stores each final (stitched or non-stitched) pulse in the `pulses` table.
+  - If `derived_from` is present, ensures each source pulse exists in `pulses` with minimal fields (time, signal, uuid, timestamp) and `x/y/z/reference=None`.
+  - Writes one row per component to `pulse_composition` linking `final_uuid -> source_uuid` with the recorded `position` and `shift`.
+  - Uniqueness constraints on `(final_uuid, position)` and `(final_uuid, source_uuid)` prevent duplicates.
+
+- Loading: `load_pulses` returns only user-facing “final” pulses — i.e., pulses that are not used as a source in any composition. For stitched pulses, it reconstructs `derived_from` by joining `pulse_composition` with the stored source pulses and ordering by `position`.
+
+- Counting: `load_metadata` reports counts of reference and sample pulses among these final pulses only. Internal source components are excluded from the totals.
+
 ## Quickstart
 
 ```python
@@ -92,4 +107,3 @@ refs_batch, samples_batch = load_pulse_batch_from_db(db_path, offset=0, limit=50
 new_annotations = [KVPair(key="status", value="verified")]
 update_raster_annotations(db_path, new_annotations)
 ```
-

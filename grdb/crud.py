@@ -2,6 +2,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Optional
+from uuid import UUID
 
 from sqlalchemy import Engine
 from sqlalchemy.exc import OperationalError
@@ -12,8 +13,11 @@ from grdb.core import create_tables
 from grdb.migrations import MIGRATION_SCRIPTS
 from grdb.models import (
     CURRENT_SCHEMA_VERSION,
+    BaseMeasurement,
     DeviceMetadata,
     KVPair,
+    Measurement,
+    Point3D,
     PulseComposition,
     PulseCompositionTable,
     PulseDB,
@@ -22,13 +26,6 @@ from grdb.models import (
     RasterMetadata,
     RasterResult,
     SchemaVersion,
-)
-from grdb.pulse_utils import (
-    _build_stitching_info,
-    _get_compositions_by_derived,
-    _get_final_pulses,
-    _get_source_measurements,
-    _pulse_db_to_raster_result,
 )
 
 
@@ -70,8 +67,11 @@ def create_and_save_raster_db(
         session.add_all(pulse_objs)
         session.commit()
 
+        # Persist composition info for any stitched reference pulses
+        _persist_pulse_compositions(session, references)
 
-def append_pulses_to_db(
+
+def add_pulses(
     path: Path,
     pulses: Sequence[RasterResult],
 ) -> None:
@@ -86,8 +86,11 @@ def append_pulses_to_db(
         session.add_all(pulse_objs)
         session.commit()
 
+        # Persist composition info for any stitched sample pulses
+        _persist_pulse_compositions(session, pulses)
 
-def load_raster_metadata_from_db(
+
+def load_metadata(
     path: Path,
 ) -> tuple[RasterConfig, DeviceMetadata, RasterMetadata, int, int]:
     """Load configuration, device, and session metadata from the DB.
@@ -108,11 +111,13 @@ def load_raster_metadata_from_db(
             msg = "No metadata found in DB"
             raise ValueError(msg)
 
+        # Only count user-facing (final) pulses, excluding any used as sources
+        final_filter = ~PulseDB.uuid.in_(select(PulseCompositionTable.source_uuid))  # type: ignore[attr-defined]
         n_reference_pulses = session.exec(
-            select(func.count()).where(PulseDB.is_reference == True)  # noqa: E712
+            select(func.count()).where(final_filter, PulseDB.is_reference == True)  # noqa: E712
         ).one()
         n_sample_pulses = session.exec(
-            select(func.count()).where(PulseDB.is_reference == False)  # noqa: E712
+            select(func.count()).where(final_filter, PulseDB.is_reference == False)  # noqa: E712
         ).one()
 
         return (
@@ -124,41 +129,40 @@ def load_raster_metadata_from_db(
         )
 
 
-def load_pulse_batch_from_db(
+def load_pulses(
     path: Path,
     offset: int,
     limit: int,
-) -> tuple[Sequence[RasterResult], Sequence[RasterResult]]:
+) -> tuple[list[RasterResult], list[RasterResult]]:
     """Load a batch of user-facing pulses with stitching info.
 
     Returns two lists of RasterResult objects: references and samples. Only
-    final pulses (those not used as sources in any composition) are included.
+    final pulses (those not used as sources in any final pulse, e.g. through stitching) are included.
     If a pulse is stitched from components, its ``pulse.stitching_info``
     contains ordered source pulse metadata.
     """
     with Session(_make_engine(path)) as session:
-        pulses = _get_final_pulses(session, offset=offset, limit=limit)
-        if not pulses:
-            return [], []
+        final_pulses = _get_final_pulses(session, offset=offset, limit=limit)
 
-        derived_ids = [p.uuid for p in pulses]
-        comps_by_derived = _get_compositions_by_derived(session, derived_ids)
-        source_ids = {
-            row.source_uuid for rows in comps_by_derived.values() for row in rows
-        }
-        sources_by_uuid = _get_source_measurements(session, source_ids)
+        final_pulse_sources = _get_final_pulse_sources(
+            session, [p.uuid for p in final_pulses]
+        )
+
+        sources = _get_source_measurements(session, final_pulse_sources)
 
         ref_results: list[RasterResult] = []
         sample_results: list[RasterResult] = []
-        for p in pulses:
-            stitching = _build_stitching_info(p.uuid, comps_by_derived, sources_by_uuid)
-            result = _pulse_db_to_raster_result(p, stitching)
-            (ref_results if p.is_reference else sample_results).append(result)
+        for final_pulse in final_pulses:
+            stitching = _build_stitching_info(
+                final_pulse.uuid, final_pulse_sources, sources
+            )
+            result = _pulse_db_to_raster_result(final_pulse, stitching)
+            (ref_results if final_pulse.is_reference else sample_results).append(result)
 
         return ref_results, sample_results
 
 
-def update_raster_annotations(
+def add_annotations(
     path: Path,
     annotations: list[KVPair],
 ) -> None:
@@ -180,28 +184,38 @@ def update_raster_annotations(
         session.commit()
 
 
-def add_pulse_compositions_to_db(
-    path: Path,
-    compositions: Sequence[PulseComposition],
+def _persist_pulse_compositions(
+    session: Session, results: Sequence[RasterResult]
 ) -> None:
-    """Append multiple composition groups efficiently."""
-    with Session(_make_engine(path)) as session:
-        composition_objs = [
-            PulseCompositionTable.from_pulse_composition(c) for c in compositions
-        ]
-        session.add_all(composition_objs)
-        session.commit()
+    """Persist composition metadata and source pulses for stitched results.
 
-
-def read_pulse_compositions_from_db(path: Path) -> Sequence[PulseCompositionTable]:
-    """Read all pulse composition rows from the DB.
-
-    Args:
-        path: SQLite DB file path.
+    For each RasterResult that has ``pulse.derived_from`` defined, ensure that:
+    - Each source BaseMeasurement exists as a PulseDB row (with minimal fields)
+    - A PulseCompositionTable row links the final pulse to each source with
+      the recorded position and shift.
     """
-    with Session(_make_engine(path)) as session:
-        stmt = select(PulseCompositionTable)
-        return session.exec(stmt).all()
+    # Insert source pulses first
+    for res in results:
+        if not res.pulse.derived_from:
+            continue
+        for measurement in res.pulse.derived_from:
+            session.add(PulseDB.from_base_measurement(measurement.pulse))
+    session.commit()
+
+    # Now insert composition links
+    for res in results:
+        if not res.pulse.derived_from:
+            continue
+        for measurement in res.pulse.derived_from:
+            session.add(
+                PulseCompositionTable(
+                    final_uuid=res.pulse.uuid,
+                    source_uuid=measurement.pulse.uuid,
+                    position=measurement.position,
+                    shift=measurement.shift,
+                )
+            )
+    session.commit()
 
 
 def _make_engine(path: Path) -> Engine:
@@ -237,3 +251,93 @@ def _get_schema_version(engine: Engine) -> Optional[int]:
             return None
         else:
             return version.version if version else None
+
+
+def _get_final_pulses(session: Session, offset: int, limit: int) -> Sequence[PulseDB]:
+    """Return pulses not used as a source in any composition (aka final pulses)."""
+    stmt = (
+        select(PulseDB)
+        .where(~PulseDB.uuid.in_(select(PulseCompositionTable.source_uuid)))  # type: ignore[attr-defined]
+        .offset(offset)
+        .limit(limit)
+    )
+    return session.exec(stmt).all()
+
+
+def _get_final_pulse_sources(
+    session: Session, derived_ids: Sequence[UUID]
+) -> dict[UUID, list[PulseCompositionTable]]:
+    """Fetch source rows for the given final pulse UUIDs."""
+    stmt = select(PulseCompositionTable).where(
+        PulseCompositionTable.final_uuid.in_(list(derived_ids))  # type: ignore[attr-defined]
+    )
+    rows = session.exec(stmt).all()
+    grouped: dict[UUID, list[PulseCompositionTable]] = {}
+    for r in rows:
+        grouped.setdefault(r.final_uuid, []).append(r)
+    return grouped
+
+
+def _get_source_measurements(
+    session: Session, final_pulse_sources: dict[UUID, list[PulseCompositionTable]]
+) -> dict[UUID, BaseMeasurement]:
+    """Load all source pulses and map them to BaseMeasurement by UUID."""
+    source_ids: set[UUID] = set()
+    for composition_rows in final_pulse_sources.values():
+        for row in composition_rows:
+            source_ids.add(row.source_uuid)
+
+    if not source_ids:
+        return {}
+
+    stmt = select(PulseDB).where(PulseDB.uuid.in_(list(source_ids)))  # type: ignore[attr-defined]
+    src_pulses = session.exec(stmt).all()
+    return {
+        sp.uuid: BaseMeasurement(
+            uuid=sp.uuid,
+            timestamp=sp.timestamp,
+            time=PulseDB.unpack_floats(sp.time),
+            signal=PulseDB.unpack_floats(sp.signal),
+        )
+        for sp in src_pulses
+    }
+
+
+def _build_stitching_info(
+    derived_uuid: UUID,
+    comps_by_derived: dict[UUID, list[PulseCompositionTable]],
+    sources_by_uuid: dict[UUID, BaseMeasurement],
+) -> Optional[list[PulseComposition]]:
+    """Create ordered stitching info for a derived pulse, if compositions exist."""
+    comp_rows = comps_by_derived.get(derived_uuid)
+    if not comp_rows:
+        return None
+
+    comp_rows_sorted = sorted(comp_rows, key=lambda r: r.position)
+    stitching: list[PulseComposition] = [
+        PulseComposition(
+            pulse=sources_by_uuid[row.source_uuid],
+            position=row.position,
+            shift=row.shift,
+        )
+        for row in comp_rows_sorted
+        if row.source_uuid in sources_by_uuid
+    ]
+    return stitching or None
+
+
+def _pulse_db_to_raster_result(
+    p: PulseDB, stitching: Optional[list[PulseComposition]]
+) -> RasterResult:
+    """Convert a PulseDB row and optional stitching details to a RasterResult."""
+    return RasterResult(
+        pulse=Measurement(
+            uuid=p.uuid,
+            timestamp=p.timestamp,
+            time=PulseDB.unpack_floats(p.time),
+            signal=PulseDB.unpack_floats(p.signal),
+            derived_from=stitching,
+        ),
+        point=Point3D(x=p.x, y=p.y, z=p.z),
+        reference=p.reference,
+    )

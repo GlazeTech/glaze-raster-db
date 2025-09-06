@@ -3,22 +3,19 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from sqlalchemy.exc import IntegrityError
 
 from grdb.crud import (
-    add_pulse_compositions_to_db,
-    append_pulses_to_db,
+    add_annotations,
+    add_pulses,
     create_and_save_raster_db,
-    load_pulse_batch_from_db,
-    load_raster_metadata_from_db,
-    update_raster_annotations,
+    load_metadata,
+    load_pulses,
 )
 from grdb.mock import (
-    make_dummy_composed_raster_result,
     make_dummy_metadata,
     make_dummy_raster_results,
 )
-from grdb.models import KVPair, PulseDB
+from grdb.models import BaseMeasurement, KVPair, PulseComposition, PulseDB, RasterResult
 
 
 def test_pack_unpack_floats_roundtrip() -> None:
@@ -40,7 +37,7 @@ def test_crud_create_and_load(db_path: Path) -> None:
         loaded_meta,
         n_ref,
         n_samp,
-    ) = load_raster_metadata_from_db(db_path)
+    ) = load_metadata(db_path)
 
     assert loaded_config == config
     assert loaded_device == device
@@ -57,18 +54,15 @@ def test_crud_create_and_load(db_path: Path) -> None:
 
 def test_append_and_batch(db_path: Path) -> None:
     config, device, meta = make_dummy_metadata()
-    refs = make_dummy_raster_results()
-    sams = make_dummy_raster_results()
-
+    refs = make_dummy_raster_results() + make_dummy_raster_results(composed_of_n=1)
+    sams = make_dummy_raster_results() + make_dummy_raster_results(composed_of_n=2)
     create_and_save_raster_db(db_path, config, device, meta, refs)
-    # Append sample pulses
-    append_pulses_to_db(db_path, sams)
-    # Load batch
-    refs_loaded, samples_loaded = load_pulse_batch_from_db(
-        db_path, offset=0, limit=len(refs) * 2
-    )
-    assert len(refs_loaded) == len(refs)  # one reference
-    assert len(samples_loaded) == len(sams)  # one appended sample
+
+    add_pulses(db_path, sams)
+    refs_loaded, samples_loaded = load_pulses(db_path, offset=0, limit=1000)
+
+    _assert_raster_results_are_equal(refs, refs_loaded)
+    _assert_raster_results_are_equal(sams, samples_loaded)
 
 
 def test_update_annotations_and_reload(db_path: Path) -> None:
@@ -78,9 +72,9 @@ def test_update_annotations_and_reload(db_path: Path) -> None:
     create_and_save_raster_db(db_path, config, device, meta, refs)
     # Update annotations
     new_annotations = [KVPair(key="x", value=1), KVPair(key="y", value=2)]
-    update_raster_annotations(db_path, new_annotations)
+    add_annotations(db_path, new_annotations)
     # Reload metadata
-    _, _, reloaded_meta, _, _ = load_raster_metadata_from_db(db_path)
+    _, _, reloaded_meta, _, _ = load_metadata(db_path)
     keys_values = {pair.key: pair.value for pair in reloaded_meta.annotations}
     assert keys_values == {"x": 1, "y": 2}
 
@@ -88,7 +82,7 @@ def test_update_annotations_and_reload(db_path: Path) -> None:
 def test_load_metadata_no_file(db_path: Path) -> None:
     non_existent = db_path / "nofile.db"
     with pytest.raises(FileNotFoundError):
-        load_raster_metadata_from_db(non_existent)
+        load_metadata(non_existent)
 
 
 def test_backward_load_compatibility() -> None:
@@ -99,38 +93,10 @@ def test_backward_load_compatibility() -> None:
             temp_path = Path(temp_dir) / p.name
             shutil.copy2(p, temp_path)
             # First load runs migrations
-            load_raster_metadata_from_db(temp_path)
+            load_metadata(temp_path)
             # Load twice to ensure it works after migration scripts have run
-            load_raster_metadata_from_db(temp_path)
-
-
-def test_load_pulse_batch_excludes_composed_pulses(db_path: Path) -> None:
-    """Test that load_pulse_batch_from_db only loads 'final' pulses, not those used as compositions."""
-    config, device, meta = make_dummy_metadata()
-    refs = make_dummy_raster_results()
-
-    create_and_save_raster_db(db_path, config, device, meta, refs)
-
-    sams = make_dummy_raster_results()
-    # Create a final "stitched" pulse from component parts
-    final_pulse, pulse_parts, compositions = make_dummy_composed_raster_result(
-        n_composed=3
-    )
-    append_pulses_to_db(db_path, [*pulse_parts, *sams, final_pulse])
-    add_pulse_compositions_to_db(db_path, compositions)
-
-    # Load pulses using the batch function
-    refs_loaded, samples_loaded = load_pulse_batch_from_db(db_path, offset=0, limit=100)
-
-    # Check that the UUIDs of loaded pulses match the expected ones
-    expected_ref_uuids = [r.pulse.uuid for r in refs]
-    expected_sample_uuids = [s.pulse.uuid for s in sams] + [final_pulse.pulse.uuid]
-
-    loaded_ref_uuids = [r.pulse.uuid for r in refs_loaded]
-    loaded_sample_uuids = [s.pulse.uuid for s in samples_loaded]
-
-    assert set(loaded_ref_uuids) == set(expected_ref_uuids)
-    assert set(loaded_sample_uuids) == set(expected_sample_uuids)
+            load_metadata(temp_path)
+            load_pulses(temp_path, offset=0, limit=10)
 
 
 def test_create_db_and_unlink_file(db_path: Path) -> None:
@@ -154,29 +120,48 @@ def test_create_db_and_unlink_file(db_path: Path) -> None:
 
     # Verify that trying to read from the deleted file raises FileNotFoundError
     with pytest.raises(FileNotFoundError):
-        load_raster_metadata_from_db(db_path)
+        load_metadata(db_path)
 
 
-def test_pulse_composition_unique_derived_position_constraint(db_path: Path) -> None:
-    """Test that the unique constraint on (derived_uuid, position) is enforced."""
-    config, device, meta = make_dummy_metadata()
-    refs = make_dummy_raster_results()
+def _assert_raster_results_are_equal(
+    results1: list[RasterResult], results2: list[RasterResult]
+) -> None:
+    """Assert that two lists of RasterResult are equal in content."""
+    assert len(results1) == len(results2), "RasterResult lists have different lengths"
+    results2_by_uuid = {res.pulse.uuid: res for res in results2}
+    for res1 in results1:
+        res2 = results2_by_uuid.get(res1.pulse.uuid)
+        assert res2 is not None, (
+            f"RasterResult with UUID {res1.pulse.uuid} not found in second list"
+        )
+        assert res1.pulse.timestamp == res2.pulse.timestamp
+        assert res1.pulse.time == pytest.approx(res2.pulse.time)
+        assert res1.pulse.signal == pytest.approx(res2.pulse.signal)
+        assert res1.point == res2.point
+        assert res1.reference == res2.reference
+        if res1.pulse.derived_from is None:
+            assert res2.pulse.derived_from is None
+        else:
+            assert res2.pulse.derived_from is not None
+            assert len(res1.pulse.derived_from) == len(res2.pulse.derived_from)
+            for comp1, comp2 in zip(res1.pulse.derived_from, res2.pulse.derived_from):
+                _assert_pulse_compositions_are_equal(comp1, comp2)
 
-    create_and_save_raster_db(db_path, config, device, meta, refs)
 
-    # Create test pulses
-    pulse_parts = make_dummy_raster_results(n_results=2)
-    final_pulse = make_dummy_raster_results(n_results=1)[0]
-    final_pulse, pulse_parts, compositions = make_dummy_composed_raster_result(
-        n_composed=2
-    )
-    # Add the pulses to the database
-    append_pulses_to_db(db_path, [*pulse_parts, final_pulse])
+def _assert_pulse_compositions_are_equal(
+    comp1: PulseComposition, comp2: PulseComposition
+) -> None:
+    """Assert that two PulseComposition instances are equal in content."""
+    assert comp1.position == comp2.position
+    assert comp1.shift == pytest.approx(comp2.shift)
+    _assert_base_measurements_are_equal(comp1.pulse, comp2.pulse)
 
-    # Create two compositions with the same derived_uuid and position
-    for i in range(len(compositions)):
-        compositions[i].position = 0  # Force same position
 
-    # This should raise an IntegrityError due to the unique constraint
-    with pytest.raises(IntegrityError):
-        add_pulse_compositions_to_db(db_path, compositions)
+def _assert_base_measurements_are_equal(
+    meas1: BaseMeasurement, meas2: BaseMeasurement
+) -> None:
+    """Assert that two BaseMeasurement instances are equal in content."""
+    assert meas1.uuid == meas2.uuid
+    assert meas1.timestamp == meas2.timestamp
+    assert meas1.time == pytest.approx(meas2.time)
+    assert meas1.signal == pytest.approx(meas2.signal)
