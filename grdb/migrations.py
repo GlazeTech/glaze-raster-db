@@ -46,9 +46,7 @@ def _migrate_to_v3(engine: Engine) -> None:
 
         # Add annotations column to store JSON list of KVPair
         connection.execute(
-            text(
-                f"ALTER TABLE {PulseDB.__tablename__} ADD COLUMN annotations TEXT"
-            )
+            text(f"ALTER TABLE {PulseDB.__tablename__} ADD COLUMN annotations TEXT")
         )
 
         # Backfill reference vs sample
@@ -68,7 +66,9 @@ def _migrate_to_v3(engine: Engine) -> None:
         )
         # Initialize annotations to empty array JSON for existing rows
         connection.execute(
-            text(f"UPDATE {PulseDB.__tablename__} SET annotations = '[]' WHERE annotations IS NULL")
+            text(
+                f"UPDATE {PulseDB.__tablename__} SET annotations = '[]' WHERE annotations IS NULL"  # noqa: S608
+            )
         )
         connection.commit()
     # Update the existing schema version row to version 3

@@ -100,7 +100,7 @@ def test_backward_load_compatibility() -> None:
     """Test that v0.1.0 databases can be loaded correctly."""
     # Copy the test asset to our test location
     for p in (Path(__file__).parent / "test_assets").iterdir():
-        if p.stem == ".DS_Store":
+        if p.suffix != ".grdb":
             continue
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir) / p.name
@@ -109,6 +109,8 @@ def test_backward_load_compatibility() -> None:
             load_metadata(temp_path)
             # Load twice to ensure it works after migration scripts have run
             load_metadata(temp_path)
+
+            # Assert we can load pulses too
             load_pulses(temp_path, offset=0, limit=10)
 
 
