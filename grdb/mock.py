@@ -13,6 +13,7 @@ from grdb.models import (
     Point3D,
     Point3DFullyDefined,
     PulseComposition,
+    PulseVariant,
     RasterConfig,
     RasterMetadata,
     RasterPattern,
@@ -63,7 +64,10 @@ def make_dummy_coordinate_transform() -> CoordinateTransform:
 
 
 def make_dummy_raster_results(
-    n_results: int = 2, pulse_length: int = 3, composed_of_n: int = 0
+    variant: PulseVariant,
+    n_results: int = 2,
+    pulse_length: int = 3,
+    composed_of_n: int = 0,
 ) -> list[RasterResult]:
     return [
         RasterResult(
@@ -72,6 +76,7 @@ def make_dummy_raster_results(
             ),
             point=Point3D(x=float(i), y=float(i), z=float(i)),
             reference=None,
+            variant=variant,
         )
         for i in range(n_results)
     ]

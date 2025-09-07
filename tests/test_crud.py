@@ -15,7 +15,14 @@ from grdb.mock import (
     make_dummy_metadata,
     make_dummy_raster_results,
 )
-from grdb.models import BaseMeasurement, KVPair, PulseComposition, PulseDB, RasterResult
+from grdb.models import (
+    BaseMeasurement,
+    KVPair,
+    PulseComposition,
+    PulseDB,
+    PulseVariant,
+    RasterResult,
+)
 
 
 def test_pack_unpack_floats_roundtrip() -> None:
@@ -27,7 +34,7 @@ def test_pack_unpack_floats_roundtrip() -> None:
 
 def test_crud_create_and_load(db_path: Path) -> None:
     config, device, meta = make_dummy_metadata()
-    refs = make_dummy_raster_results()
+    refs = make_dummy_raster_results(variant=PulseVariant.reference)
 
     create_and_save_raster_db(db_path, config, device, meta, refs)
 
@@ -54,8 +61,12 @@ def test_crud_create_and_load(db_path: Path) -> None:
 
 def test_append_and_batch(db_path: Path) -> None:
     config, device, meta = make_dummy_metadata()
-    refs = make_dummy_raster_results() + make_dummy_raster_results(composed_of_n=1)
-    sams = make_dummy_raster_results() + make_dummy_raster_results(composed_of_n=2)
+    refs = make_dummy_raster_results(
+        variant=PulseVariant.reference
+    ) + make_dummy_raster_results(composed_of_n=1, variant=PulseVariant.reference)
+    sams = make_dummy_raster_results(
+        variant=PulseVariant.sample
+    ) + make_dummy_raster_results(composed_of_n=2, variant=PulseVariant.sample)
     create_and_save_raster_db(db_path, config, device, meta, refs)
 
     add_pulses(db_path, sams)
@@ -67,7 +78,7 @@ def test_append_and_batch(db_path: Path) -> None:
 
 def test_update_annotations_and_reload(db_path: Path) -> None:
     config, device, meta = make_dummy_metadata()
-    refs = make_dummy_raster_results()
+    refs = make_dummy_raster_results(variant=PulseVariant.reference)
 
     create_and_save_raster_db(db_path, config, device, meta, refs)
     # Update annotations
@@ -89,6 +100,8 @@ def test_backward_load_compatibility() -> None:
     """Test that v0.1.0 databases can be loaded correctly."""
     # Copy the test asset to our test location
     for p in (Path(__file__).parent / "test_assets").iterdir():
+        if p.stem == ".DS_Store":
+            continue
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir) / p.name
             shutil.copy2(p, temp_path)
@@ -103,7 +116,7 @@ def test_create_db_and_unlink_file(db_path: Path) -> None:
     """Test creating a database file, writing to it, and then unlinking it."""
     # Create database with some data
     config, device, meta = make_dummy_metadata()
-    refs = make_dummy_raster_results()
+    refs = make_dummy_raster_results(variant=PulseVariant.reference)
 
     # Create and save the database
     create_and_save_raster_db(db_path, config, device, meta, refs)
@@ -139,6 +152,7 @@ def _assert_raster_results_are_equal(
         assert res1.pulse.signal == pytest.approx(res2.pulse.signal)
         assert res1.point == res2.point
         assert res1.reference == res2.reference
+        assert res1.variant == res2.variant
         if res1.pulse.derived_from is None:
             assert res2.pulse.derived_from is None
         else:

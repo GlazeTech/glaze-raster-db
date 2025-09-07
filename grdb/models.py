@@ -1,5 +1,6 @@
 import json
 import struct
+from enum import Enum
 from typing import Any, Literal, Optional, Union
 from uuid import UUID, uuid4
 
@@ -10,9 +11,16 @@ from sqlmodel import Field, SQLModel
 GRDB_METADATA = MetaData()
 
 # Current schema version - increment when making breaking changes
-CURRENT_SCHEMA_VERSION = 2  # v0.1.0 = 1, v0.2.0 = 2
+CURRENT_SCHEMA_VERSION = 3  # v0.1.0 = 1, v0.2.0 = 2, v0.3.0 = 3
 Axis = Literal["x", "y", "z"]
 Sign = Literal[1, -1]
+
+
+class PulseVariant(str, Enum):
+    reference = "reference"
+    sample = "sample"
+    noise = "noise"
+    other = "other"
 
 
 class GRDBBase(SQLModel, metadata=GRDB_METADATA):
@@ -132,6 +140,7 @@ class Measurement(BaseMeasurement):
 class RasterResult(BaseModel):
     pulse: Measurement
     point: Point3D
+    variant: PulseVariant
     reference: Optional[UUID] = None
 
 
@@ -235,23 +244,17 @@ class PulseDB(GRDBBase, table=True):
     time: bytes  # packed float32 array
     signal: bytes
     timestamp: int  # ms since UNIX epoch
-    is_reference: bool
     x: Optional[float]
     y: Optional[float]
     z: Optional[float]
     reference: Optional[UUID]
+    variant: PulseVariant
 
     @classmethod
-    def from_raster_result(
-        cls: type["PulseDB"],
-        result: "RasterResult",
-        *,
-        is_reference: bool,
-    ) -> "PulseDB":
+    def from_raster_result(cls: type["PulseDB"], result: "RasterResult") -> "PulseDB":
         time_bytes = cls.pack_floats(result.pulse.time)
         signal_bytes = cls.pack_floats(result.pulse.signal)
         return cls(
-            is_reference=is_reference,
             time=time_bytes,
             signal=signal_bytes,
             timestamp=result.pulse.timestamp,
@@ -260,6 +263,7 @@ class PulseDB(GRDBBase, table=True):
             y=result.point.y,
             z=result.point.z,
             reference=result.reference,
+            variant=result.variant,
         )
 
     @classmethod
@@ -278,18 +282,23 @@ class PulseDB(GRDBBase, table=True):
             y=None,
             z=None,
             reference=None,
+            variant=PulseVariant.other,
         )
 
-    def to_raster_result(self: "PulseDB") -> RasterResult:
+    def to_raster_result(
+        self: "PulseDB", stitching: Optional[list[PulseComposition]]
+    ) -> RasterResult:
         return RasterResult(
             pulse=Measurement(
                 uuid=self.uuid,
                 timestamp=self.timestamp,
                 time=self.unpack_floats(self.time),
                 signal=self.unpack_floats(self.signal),
+                derived_from=stitching,
             ),
             point=Point3D(x=self.x, y=self.y, z=self.z),
             reference=self.reference,
+            variant=self.variant,
         )
 
     @staticmethod

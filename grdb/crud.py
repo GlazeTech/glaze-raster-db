@@ -16,11 +16,10 @@ from grdb.models import (
     BaseMeasurement,
     DeviceMetadata,
     KVPair,
-    Measurement,
-    Point3D,
     PulseComposition,
     PulseCompositionTable,
     PulseDB,
+    PulseVariant,
     RasterConfig,
     RasterInfoDB,
     RasterMetadata,
@@ -60,10 +59,7 @@ def create_and_save_raster_db(
         session.add(raster_info)
         session.commit()
         session.refresh(raster_info)
-        pulse_objs = [
-            PulseDB.from_raster_result(result, is_reference=True)
-            for result in references
-        ]
+        pulse_objs = [PulseDB.from_raster_result(result) for result in references]
         session.add_all(pulse_objs)
         session.commit()
 
@@ -82,7 +78,7 @@ def add_pulses(
         pulses: Sample pulses to insert.
     """
     with Session(_make_engine(path)) as session:
-        pulse_objs = [PulseDB.from_raster_result(p, is_reference=False) for p in pulses]
+        pulse_objs = [PulseDB.from_raster_result(p) for p in pulses]
         session.add_all(pulse_objs)
         session.commit()
 
@@ -114,10 +110,14 @@ def load_metadata(
         # Only count user-facing (final) pulses, excluding any used as sources
         final_filter = ~PulseDB.uuid.in_(select(PulseCompositionTable.source_uuid))  # type: ignore[attr-defined]
         n_reference_pulses = session.exec(
-            select(func.count()).where(final_filter, PulseDB.is_reference == True)  # noqa: E712
+            select(func.count()).where(
+                final_filter, PulseDB.variant == PulseVariant.reference
+            )
         ).one()
         n_sample_pulses = session.exec(
-            select(func.count()).where(final_filter, PulseDB.is_reference == False)  # noqa: E712
+            select(func.count()).where(
+                final_filter, PulseDB.variant == PulseVariant.sample
+            )
         ).one()
 
         return (
@@ -156,8 +156,12 @@ def load_pulses(
             stitching = _build_stitching_info(
                 final_pulse.uuid, final_pulse_sources, sources
             )
-            result = _pulse_db_to_raster_result(final_pulse, stitching)
-            (ref_results if final_pulse.is_reference else sample_results).append(result)
+            result = PulseDB.to_raster_result(final_pulse, stitching)
+            (
+                ref_results
+                if final_pulse.variant == PulseVariant.reference
+                else sample_results
+            ).append(result)
 
         return ref_results, sample_results
 
@@ -324,20 +328,3 @@ def _build_stitching_info(
         if row.source_uuid in sources_by_uuid
     ]
     return stitching or None
-
-
-def _pulse_db_to_raster_result(
-    p: PulseDB, stitching: Optional[list[PulseComposition]]
-) -> RasterResult:
-    """Convert a PulseDB row and optional stitching details to a RasterResult."""
-    return RasterResult(
-        pulse=Measurement(
-            uuid=p.uuid,
-            timestamp=p.timestamp,
-            time=PulseDB.unpack_floats(p.time),
-            signal=PulseDB.unpack_floats(p.signal),
-            derived_from=stitching,
-        ),
-        point=Point3D(x=p.x, y=p.y, z=p.z),
-        reference=p.reference,
-    )
