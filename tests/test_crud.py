@@ -11,10 +11,6 @@ from grdb.crud import (
     load_metadata,
     load_pulses,
 )
-from grdb.mock import (
-    make_dummy_measurement,
-    make_dummy_metadata,
-)
 from grdb.models import (
     BaseTrace,
     KVPair,
@@ -22,6 +18,11 @@ from grdb.models import (
     PulseComposition,
     PulseDB,
     TraceVariant,
+)
+from tests.mock import (
+    make_dummy_measurement,
+    make_dummy_metadata,
+    make_measurement_variants,
 )
 
 
@@ -90,6 +91,25 @@ def test_update_annotations_and_reload(db_path: Path) -> None:
     assert keys_values == {"x": 1, "y": 2}
 
 
+def test_measurement_field_variations_roundtrip(db_path: Path) -> None:
+    """Ensure Measurements round-trip with varied points and annotations.
+
+    Uses mock generator to hit key branches of Measurement construction.
+    """
+    config, device, meta = make_dummy_metadata()
+    variants = make_measurement_variants()
+    refs = [m for m in variants if m.variant == TraceVariant.reference]
+    others = [m for m in variants if m.variant != TraceVariant.reference]
+
+    create_and_save_raster_db(db_path, config, device, meta, refs)
+    add_pulses(db_path, others)
+
+    refs_loaded, samples_loaded = load_pulses(db_path, offset=0, limit=100)
+
+    _assert_raster_results_are_equal(refs, refs_loaded)
+    _assert_raster_results_are_equal(others, samples_loaded)
+
+
 def test_load_metadata_no_file(db_path: Path) -> None:
     non_existent = db_path / "nofile.db"
     with pytest.raises(FileNotFoundError):
@@ -110,8 +130,15 @@ def test_backward_load_compatibility() -> None:
             # Load twice to ensure it works after migration scripts have run
             load_metadata(temp_path)
 
-            # Assert we can load pulses too
-            load_pulses(temp_path, offset=0, limit=10)
+            # Assert we can add and load pulses
+            refs_existing, sams_existing = load_pulses(temp_path, offset=0, limit=1000)
+            variants = make_measurement_variants()
+            ref_variants = [m for m in variants if m.variant == TraceVariant.reference]
+            sam_variants = [m for m in variants if m.variant == TraceVariant.sample]
+            add_pulses(temp_path, variants)
+            refs_loaded, sams_loaded = load_pulses(temp_path, offset=0, limit=1_000_000)
+            _assert_raster_results_are_equal(refs_existing + ref_variants, refs_loaded)
+            _assert_raster_results_are_equal(sams_existing + sam_variants, sams_loaded)
 
 
 def test_create_db_and_unlink_file(db_path: Path) -> None:
@@ -142,26 +169,31 @@ def _assert_raster_results_are_equal(
     results1: list[Measurement], results2: list[Measurement]
 ) -> None:
     """Assert that two lists of RasterResult are equal in content."""
-    assert len(results1) == len(results2), "RasterResult lists have different lengths"
+    assert len(results1) == len(results2)
     results2_by_uuid = {res.pulse.uuid: res for res in results2}
     for res1 in results1:
         res2 = results2_by_uuid.get(res1.pulse.uuid)
-        assert res2 is not None, (
-            f"RasterResult with UUID {res1.pulse.uuid} not found in second list"
-        )
+        assert res2 is not None
         assert res1.pulse.timestamp == res2.pulse.timestamp
         assert res1.pulse.time == pytest.approx(res2.pulse.time)
         assert res1.pulse.signal == pytest.approx(res2.pulse.signal)
         assert res1.point == res2.point
         assert res1.reference == res2.reference
         assert res1.variant == res2.variant
-        if res1.pulse.derived_from is None:
-            assert res2.pulse.derived_from is None
-        else:
-            assert res2.pulse.derived_from is not None
-            assert len(res1.pulse.derived_from) == len(res2.pulse.derived_from)
-            for comp1, comp2 in zip(res1.pulse.derived_from, res2.pulse.derived_from):
-                _assert_pulse_compositions_are_equal(comp1, comp2)
+
+        _assert_annotations_are_equal(res1, res2)
+        _assert_derived_from_are_equal(res1, res2)
+
+
+def _assert_derived_from_are_equal(res1: Measurement, res2: Measurement) -> None:
+    """Assert that the derived_from compositions of two Measurement instances are equal."""
+    if res1.pulse.derived_from is None:
+        assert res2.pulse.derived_from is None
+    else:
+        assert res2.pulse.derived_from is not None
+        assert len(res1.pulse.derived_from) == len(res2.pulse.derived_from)
+        for comp1, comp2 in zip(res1.pulse.derived_from, res2.pulse.derived_from):
+            _assert_pulse_compositions_are_equal(comp1, comp2)
 
 
 def _assert_pulse_compositions_are_equal(
@@ -179,3 +211,15 @@ def _assert_base_measurements_are_equal(meas1: BaseTrace, meas2: BaseTrace) -> N
     assert meas1.timestamp == meas2.timestamp
     assert meas1.time == pytest.approx(meas2.time)
     assert meas1.signal == pytest.approx(meas2.signal)
+
+
+def _assert_annotations_are_equal(res1: Measurement, res2: Measurement) -> None:
+    """Assert that the annotations of two Measurement instances are equal."""
+    if res1.annotations is None or len(res1.annotations) == 0:
+        assert res2.annotations is None or len(res2.annotations) == 0
+    else:
+        assert res2.annotations is not None
+        assert len(res1.annotations) == len(res2.annotations)
+        for ann1, ann2 in zip(res1.annotations, res2.annotations):
+            assert ann1.key == ann2.key
+            assert ann1.value == ann2.value

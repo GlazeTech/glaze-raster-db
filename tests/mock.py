@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import random
 import time
 import uuid
@@ -77,6 +79,7 @@ def make_dummy_measurement(
             point=Point3D(x=float(i), y=float(i), z=float(i)),
             reference=None,
             variant=variant,
+            annotations=[],
         )
         for i in range(n_results)
     ]
@@ -116,4 +119,70 @@ def make_dummy_basetrace(pulse_length: int = 2) -> BaseTrace:
         signal=[random.random() for _ in range(pulse_length)],  # noqa: S311
         uuid=uuid.uuid4(),
         timestamp=int(time.time() * 1000),  # Time in ms since Unix epoch
+    )
+
+
+def make_measurement_variants() -> list[Measurement]:
+    """Generate a comprehensive set of Measurements covering key branches.
+
+    Branches covered:
+    - Point3D: fully defined; partially defined (one None); all None.
+    - Annotations: mixed types; empty KV; empty list.
+    - Variants: reference, sample, noise, other.
+    - Reference field: set vs unset (sample referencing a ref).
+    - Stitching: present (derived_from) vs absent.
+    """
+
+    def build(
+        *,
+        point: Point3D | None = None,
+        variant: TraceVariant | None = TraceVariant.sample,
+        annotations: list[KVPair] | None = None,
+        composed_of_n: int | None = 0,
+        reference_uuid: uuid.UUID | None = None,
+    ) -> Measurement:
+        point = point or Point3D(x=None, y=None, z=None)
+        variant = variant or TraceVariant.sample
+        composed_of_n = composed_of_n or 0
+
+        return Measurement(
+            pulse=make_dummy_trace(composed_of_n=composed_of_n),
+            point=point,
+            reference=reference_uuid,
+            variant=variant,
+            annotations=annotations,
+        )
+
+    def build_with_potential_ref(*, with_ref: bool = False) -> list[Measurement]:
+        built = []
+        if with_ref:
+            ref = build(variant=TraceVariant.reference)
+            ref_uuid = ref.pulse.uuid
+            built.append(ref)
+        else:
+            ref_uuid = None
+        built.extend(
+            [
+                build(composed_of_n=2, reference_uuid=ref_uuid),
+                build(point=Point3D(x=1.0, y=2.0, z=3.0), reference_uuid=ref_uuid),
+                build(point=Point3D(x=4.0, y=None, z=6.0), reference_uuid=ref_uuid),
+                build(variant=TraceVariant.reference, reference_uuid=ref_uuid),
+                build(variant=TraceVariant.sample, reference_uuid=ref_uuid),
+                build(variant=TraceVariant.noise, reference_uuid=ref_uuid),
+                build(variant=TraceVariant.other, reference_uuid=ref_uuid),
+                build(
+                    annotations=[KVPair(key="s", value="v")], reference_uuid=ref_uuid
+                ),
+                build(
+                    annotations=[KVPair(key="int", value=42)], reference_uuid=ref_uuid
+                ),
+                build(
+                    annotations=[KVPair(key="f", value=3.14)], reference_uuid=ref_uuid
+                ),
+            ]
+        )
+        return built
+
+    return build_with_potential_ref(with_ref=True) + build_with_potential_ref(
+        with_ref=False
     )
