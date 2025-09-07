@@ -28,24 +28,23 @@ from grdb.models import (
 )
 
 
-def create_and_save_raster_db(
+def create_db(
     path: Path,
     raster_config: RasterConfig,
     device_metadata: DeviceMetadata,
     raster_metadata: RasterMetadata,
-    references: Sequence[Measurement],
 ) -> None:
-    """Create a new raster DB file and seed it.
+    """Create a new raster DB file and save metadata.
 
-    - Creates tables and writes metadata/configuration.
-    - Inserts the given reference pulses as initial data.
+    - Creates tables and writes metadata/configuration only. Pulses are not
+      inserted at creation time; use ``add_pulses`` afterwards to add any
+      measurements (including references).
 
     Args:
         path: Destination SQLite file path.
         raster_config: Acquisition configuration.
         device_metadata: Device information.
         raster_metadata: Session metadata.
-        references: Initial reference pulses to store.
     """
     engine = create_engine(f"sqlite:///{path}", echo=False, poolclass=NullPool)
     create_tables(engine)
@@ -59,12 +58,7 @@ def create_and_save_raster_db(
         session.add(raster_info)
         session.commit()
         session.refresh(raster_info)
-        pulse_objs = [PulseDB.from_measurement(result) for result in references]
-        session.add_all(pulse_objs)
         session.commit()
-
-        # Persist composition info for any stitched reference pulses
-        _persist_pulse_compositions(session, references)
 
 
 def add_pulses(
@@ -133,16 +127,20 @@ def load_pulses(
     path: Path,
     offset: int,
     limit: int,
-) -> tuple[list[Measurement], list[Measurement]]:
+    variant: Optional[TraceVariant] = None,
+) -> list[Measurement]:
     """Load a batch of user-facing pulses with stitching info.
 
-    Returns two lists of RasterResult objects: references and samples. Only
-    final pulses (those not used as sources in any final pulse, e.g. through stitching) are included.
-    If a pulse is stitched from components, its ``pulse.stitching_info``
-    contains ordered source pulse metadata.
+    Returns a list of Measurement objects. Only final pulses (those not used
+    as sources in any final pulse, e.g., through stitching) are included.
+    If a pulse is stitched from components, its ``pulse.derived_from``
+    contains ordered source pulse metadata. If ``variant`` is provided, only
+    pulses of that variant are returned; otherwise, all variants are returned.
     """
     with Session(_make_engine(path)) as session:
-        final_pulses = _get_final_pulses(session, offset=offset, limit=limit)
+        final_pulses = _get_final_pulses(
+            session, offset=offset, limit=limit, variant=variant
+        )
 
         final_pulse_sources = _get_final_pulse_sources(
             session, [p.uuid for p in final_pulses]
@@ -150,20 +148,15 @@ def load_pulses(
 
         sources = _get_source_measurements(session, final_pulse_sources)
 
-        ref_results: list[Measurement] = []
-        sample_results: list[Measurement] = []
+        results: list[Measurement] = []
         for final_pulse in final_pulses:
             stitching = _build_stitching_info(
                 final_pulse.uuid, final_pulse_sources, sources
             )
             result = PulseDB.to_measurement(final_pulse, stitching)
-            (
-                ref_results
-                if final_pulse.variant == TraceVariant.reference
-                else sample_results
-            ).append(result)
+            results.append(result)
 
-        return ref_results, sample_results
+        return results
 
 
 def add_annotations(
@@ -257,14 +250,19 @@ def _get_schema_version(engine: Engine) -> Optional[int]:
             return version.version if version else None
 
 
-def _get_final_pulses(session: Session, offset: int, limit: int) -> Sequence[PulseDB]:
-    """Return pulses not used as a source in any composition (aka final pulses)."""
-    stmt = (
-        select(PulseDB)
-        .where(~PulseDB.uuid.in_(select(PulseCompositionTable.source_uuid)))  # type: ignore[attr-defined]
-        .offset(offset)
-        .limit(limit)
+def _get_final_pulses(
+    session: Session, offset: int, limit: int, variant: Optional[TraceVariant] = None
+) -> Sequence[PulseDB]:
+    """Return pulses not used as a source in any composition (aka final pulses).
+
+    If ``variant`` is provided, restrict to pulses of that variant.
+    """
+    stmt = select(PulseDB).where(
+        ~PulseDB.uuid.in_(select(PulseCompositionTable.source_uuid))  # type: ignore[attr-defined]
     )
+    if variant is not None:
+        stmt = stmt.where(PulseDB.variant == variant)
+    stmt = stmt.offset(offset).limit(limit)
     return session.exec(stmt).all()
 
 

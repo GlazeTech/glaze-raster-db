@@ -7,7 +7,7 @@ import pytest
 from grdb.crud import (
     add_annotations,
     add_pulses,
-    create_and_save_raster_db,
+    create_db,
     load_metadata,
     load_pulses,
 )
@@ -37,7 +37,9 @@ def test_crud_create_and_load(db_path: Path) -> None:
     config, device, meta = make_dummy_metadata()
     refs = make_dummy_measurement(variant=TraceVariant.reference)
 
-    create_and_save_raster_db(db_path, config, device, meta, refs)
+    create_db(db_path, config, device, meta)
+    # Add references after DB creation
+    add_pulses(db_path, refs)
 
     (
         loaded_config,
@@ -68,10 +70,16 @@ def test_append_and_batch(db_path: Path) -> None:
     sams = make_dummy_measurement(variant=TraceVariant.sample) + make_dummy_measurement(
         composed_of_n=2, variant=TraceVariant.sample
     )
-    create_and_save_raster_db(db_path, config, device, meta, refs)
+    create_db(db_path, config, device, meta)
 
-    add_pulses(db_path, sams)
-    refs_loaded, samples_loaded = load_pulses(db_path, offset=0, limit=1000)
+    # Add references and samples after DB creation
+    add_pulses(db_path, sams + refs)
+    refs_loaded = load_pulses(
+        db_path, offset=0, limit=1000, variant=TraceVariant.reference
+    )
+    samples_loaded = load_pulses(
+        db_path, offset=0, limit=1000, variant=TraceVariant.sample
+    )
 
     _assert_raster_results_are_equal(refs, refs_loaded)
     _assert_raster_results_are_equal(sams, samples_loaded)
@@ -79,9 +87,7 @@ def test_append_and_batch(db_path: Path) -> None:
 
 def test_update_annotations_and_reload(db_path: Path) -> None:
     config, device, meta = make_dummy_metadata()
-    refs = make_dummy_measurement(variant=TraceVariant.reference)
-
-    create_and_save_raster_db(db_path, config, device, meta, refs)
+    create_db(db_path, config, device, meta)
     # Update annotations
     new_annotations = [KVPair(key="x", value=1), KVPair(key="y", value=2)]
     add_annotations(db_path, new_annotations)
@@ -98,16 +104,13 @@ def test_measurement_field_variations_roundtrip(db_path: Path) -> None:
     """
     config, device, meta = make_dummy_metadata()
     variants = make_measurement_variants()
-    refs = [m for m in variants if m.variant == TraceVariant.reference]
-    others = [m for m in variants if m.variant != TraceVariant.reference]
 
-    create_and_save_raster_db(db_path, config, device, meta, refs)
-    add_pulses(db_path, others)
+    create_db(db_path, config, device, meta)
+    add_pulses(db_path, variants)
 
-    refs_loaded, samples_loaded = load_pulses(db_path, offset=0, limit=100)
+    loaded = load_pulses(db_path, offset=0, limit=1_000_000)
 
-    _assert_raster_results_are_equal(refs, refs_loaded)
-    _assert_raster_results_are_equal(others, samples_loaded)
+    _assert_raster_results_are_equal(loaded, variants)
 
 
 def test_load_metadata_no_file(db_path: Path) -> None:
@@ -131,12 +134,23 @@ def test_backward_load_compatibility() -> None:
             load_metadata(temp_path)
 
             # Assert we can add and load pulses
-            refs_existing, sams_existing = load_pulses(temp_path, offset=0, limit=1000)
+            refs_existing = load_pulses(
+                temp_path, offset=0, limit=1000, variant=TraceVariant.reference
+            )
+            sams_existing = load_pulses(
+                temp_path, offset=0, limit=1000, variant=TraceVariant.sample
+            )
             variants = make_measurement_variants()
             ref_variants = [m for m in variants if m.variant == TraceVariant.reference]
             sam_variants = [m for m in variants if m.variant == TraceVariant.sample]
             add_pulses(temp_path, variants)
-            refs_loaded, sams_loaded = load_pulses(temp_path, offset=0, limit=1_000_000)
+            # Load references and samples using the new API filter
+            refs_loaded = load_pulses(
+                temp_path, offset=0, limit=1_000_000, variant=TraceVariant.reference
+            )
+            sams_loaded = load_pulses(
+                temp_path, offset=0, limit=1_000_000, variant=TraceVariant.sample
+            )
             _assert_raster_results_are_equal(refs_existing + ref_variants, refs_loaded)
             _assert_raster_results_are_equal(sams_existing + sam_variants, sams_loaded)
 
@@ -145,10 +159,8 @@ def test_create_db_and_unlink_file(db_path: Path) -> None:
     """Test creating a database file, writing to it, and then unlinking it."""
     # Create database with some data
     config, device, meta = make_dummy_metadata()
-    refs = make_dummy_measurement(variant=TraceVariant.reference)
-
-    # Create and save the database
-    create_and_save_raster_db(db_path, config, device, meta, refs)
+    # Create and save the database (no pulses yet)
+    create_db(db_path, config, device, meta)
 
     # Verify the file was created and has content
     assert db_path.exists()
