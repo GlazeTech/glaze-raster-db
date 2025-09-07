@@ -13,18 +13,18 @@ from grdb.core import create_tables
 from grdb.migrations import MIGRATION_SCRIPTS
 from grdb.models import (
     CURRENT_SCHEMA_VERSION,
-    BaseMeasurement,
+    BaseTrace,
     DeviceMetadata,
     KVPair,
+    Measurement,
     PulseComposition,
     PulseCompositionTable,
     PulseDB,
-    PulseVariant,
     RasterConfig,
     RasterInfoDB,
     RasterMetadata,
-    RasterResult,
     SchemaVersion,
+    TraceVariant,
 )
 
 
@@ -33,7 +33,7 @@ def create_and_save_raster_db(
     raster_config: RasterConfig,
     device_metadata: DeviceMetadata,
     raster_metadata: RasterMetadata,
-    references: Sequence[RasterResult],
+    references: Sequence[Measurement],
 ) -> None:
     """Create a new raster DB file and seed it.
 
@@ -59,7 +59,7 @@ def create_and_save_raster_db(
         session.add(raster_info)
         session.commit()
         session.refresh(raster_info)
-        pulse_objs = [PulseDB.from_raster_result(result) for result in references]
+        pulse_objs = [PulseDB.from_measurement(result) for result in references]
         session.add_all(pulse_objs)
         session.commit()
 
@@ -69,7 +69,7 @@ def create_and_save_raster_db(
 
 def add_pulses(
     path: Path,
-    pulses: Sequence[RasterResult],
+    pulses: Sequence[Measurement],
 ) -> None:
     """Append non-reference pulses to an existing raster DB.
 
@@ -78,7 +78,7 @@ def add_pulses(
         pulses: Sample pulses to insert.
     """
     with Session(_make_engine(path)) as session:
-        pulse_objs = [PulseDB.from_raster_result(p) for p in pulses]
+        pulse_objs = [PulseDB.from_measurement(p) for p in pulses]
         session.add_all(pulse_objs)
         session.commit()
 
@@ -111,12 +111,12 @@ def load_metadata(
         final_filter = ~PulseDB.uuid.in_(select(PulseCompositionTable.source_uuid))  # type: ignore[attr-defined]
         n_reference_pulses = session.exec(
             select(func.count()).where(
-                final_filter, PulseDB.variant == PulseVariant.reference
+                final_filter, PulseDB.variant == TraceVariant.reference
             )
         ).one()
         n_sample_pulses = session.exec(
             select(func.count()).where(
-                final_filter, PulseDB.variant == PulseVariant.sample
+                final_filter, PulseDB.variant == TraceVariant.sample
             )
         ).one()
 
@@ -133,7 +133,7 @@ def load_pulses(
     path: Path,
     offset: int,
     limit: int,
-) -> tuple[list[RasterResult], list[RasterResult]]:
+) -> tuple[list[Measurement], list[Measurement]]:
     """Load a batch of user-facing pulses with stitching info.
 
     Returns two lists of RasterResult objects: references and samples. Only
@@ -150,16 +150,16 @@ def load_pulses(
 
         sources = _get_source_measurements(session, final_pulse_sources)
 
-        ref_results: list[RasterResult] = []
-        sample_results: list[RasterResult] = []
+        ref_results: list[Measurement] = []
+        sample_results: list[Measurement] = []
         for final_pulse in final_pulses:
             stitching = _build_stitching_info(
                 final_pulse.uuid, final_pulse_sources, sources
             )
-            result = PulseDB.to_raster_result(final_pulse, stitching)
+            result = PulseDB.to_measurement(final_pulse, stitching)
             (
                 ref_results
-                if final_pulse.variant == PulseVariant.reference
+                if final_pulse.variant == TraceVariant.reference
                 else sample_results
             ).append(result)
 
@@ -189,7 +189,7 @@ def add_annotations(
 
 
 def _persist_pulse_compositions(
-    session: Session, results: Sequence[RasterResult]
+    session: Session, results: Sequence[Measurement]
 ) -> None:
     """Persist composition metadata and source pulses for stitched results.
 
@@ -203,7 +203,7 @@ def _persist_pulse_compositions(
         if not res.pulse.derived_from:
             continue
         for measurement in res.pulse.derived_from:
-            session.add(PulseDB.from_base_measurement(measurement.pulse))
+            session.add(PulseDB.from_basetrace(measurement.pulse))
     session.commit()
 
     # Now insert composition links
@@ -284,7 +284,7 @@ def _get_final_pulse_sources(
 
 def _get_source_measurements(
     session: Session, final_pulse_sources: dict[UUID, list[PulseCompositionTable]]
-) -> dict[UUID, BaseMeasurement]:
+) -> dict[UUID, BaseTrace]:
     """Load all source pulses and map them to BaseMeasurement by UUID."""
     source_ids: set[UUID] = set()
     for composition_rows in final_pulse_sources.values():
@@ -297,7 +297,7 @@ def _get_source_measurements(
     stmt = select(PulseDB).where(PulseDB.uuid.in_(list(source_ids)))  # type: ignore[attr-defined]
     src_pulses = session.exec(stmt).all()
     return {
-        sp.uuid: BaseMeasurement(
+        sp.uuid: BaseTrace(
             uuid=sp.uuid,
             timestamp=sp.timestamp,
             time=PulseDB.unpack_floats(sp.time),
@@ -310,7 +310,7 @@ def _get_source_measurements(
 def _build_stitching_info(
     derived_uuid: UUID,
     comps_by_derived: dict[UUID, list[PulseCompositionTable]],
-    sources_by_uuid: dict[UUID, BaseMeasurement],
+    sources_by_uuid: dict[UUID, BaseTrace],
 ) -> Optional[list[PulseComposition]]:
     """Create ordered stitching info for a derived pulse, if compositions exist."""
     comp_rows = comps_by_derived.get(derived_uuid)

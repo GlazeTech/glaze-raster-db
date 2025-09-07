@@ -16,7 +16,7 @@ Axis = Literal["x", "y", "z"]
 Sign = Literal[1, -1]
 
 
-class PulseVariant(str, Enum):
+class TraceVariant(str, Enum):
     reference = "reference"
     sample = "sample"
     noise = "noise"
@@ -109,7 +109,7 @@ class RasterMetadata(BaseModel):
     user_coordinates: Optional[CoordinateTransform] = None
 
 
-class BaseMeasurement(BaseModel):
+class BaseTrace(BaseModel):
     time: list[float]
     signal: list[float]
     uuid: UUID
@@ -122,12 +122,12 @@ class PulseComposition(BaseModel):
     Contains the source pulse data and metadata about how it was used.
     """
 
-    pulse: BaseMeasurement
+    pulse: BaseTrace
     position: int
     shift: float
 
 
-class Measurement(BaseMeasurement):
+class Trace(BaseTrace):
     """User-facing pulse model that may include stitching information.
 
     When a pulse is a stitched result, ``stitching_info`` lists the
@@ -137,11 +137,12 @@ class Measurement(BaseMeasurement):
     derived_from: Optional[list[PulseComposition]] = None
 
 
-class RasterResult(BaseModel):
-    pulse: Measurement
+class Measurement(BaseModel):
+    pulse: Trace
     point: Point3D
-    variant: PulseVariant
+    variant: TraceVariant
     reference: Optional[UUID] = None
+    annotations: Optional[list[KVPair]] = None
 
 
 class RasterInfoDB(GRDBBase, table=True):
@@ -248,10 +249,13 @@ class PulseDB(GRDBBase, table=True):
     y: Optional[float]
     z: Optional[float]
     reference: Optional[UUID]
-    variant: PulseVariant
+    variant: TraceVariant
+    annotations: Optional[str] = Field(
+        default_factory=lambda: json.dumps([])
+    )  # JSON string of list[KVPair]
 
     @classmethod
-    def from_raster_result(cls: type["PulseDB"], result: "RasterResult") -> "PulseDB":
+    def from_measurement(cls: type["PulseDB"], result: "Measurement") -> "PulseDB":
         time_bytes = cls.pack_floats(result.pulse.time)
         signal_bytes = cls.pack_floats(result.pulse.signal)
         return cls(
@@ -264,12 +268,13 @@ class PulseDB(GRDBBase, table=True):
             z=result.point.z,
             reference=result.reference,
             variant=result.variant,
+            annotations=json.dumps(
+                [a.model_dump() for a in (result.annotations or [])]
+            ),
         )
 
     @classmethod
-    def from_base_measurement(
-        cls: type["PulseDB"], measurement: "BaseMeasurement"
-    ) -> "PulseDB":
+    def from_basetrace(cls: type["PulseDB"], measurement: "BaseTrace") -> "PulseDB":
         time_bytes = cls.pack_floats(measurement.time)
         signal_bytes = cls.pack_floats(measurement.signal)
         return cls(
@@ -282,14 +287,15 @@ class PulseDB(GRDBBase, table=True):
             y=None,
             z=None,
             reference=None,
-            variant=PulseVariant.other,
+            variant=TraceVariant.other,
+            annotations=json.dumps([]),
         )
 
-    def to_raster_result(
+    def to_measurement(
         self: "PulseDB", stitching: Optional[list[PulseComposition]]
-    ) -> RasterResult:
-        return RasterResult(
-            pulse=Measurement(
+    ) -> Measurement:
+        return Measurement(
+            pulse=Trace(
                 uuid=self.uuid,
                 timestamp=self.timestamp,
                 time=self.unpack_floats(self.time),
@@ -299,6 +305,9 @@ class PulseDB(GRDBBase, table=True):
             point=Point3D(x=self.x, y=self.y, z=self.z),
             reference=self.reference,
             variant=self.variant,
+            annotations=[
+                KVPair.model_validate(a) for a in json.loads(self.annotations or "[]")
+            ],
         )
 
     @staticmethod

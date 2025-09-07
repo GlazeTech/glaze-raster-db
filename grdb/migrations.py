@@ -31,6 +31,7 @@ def _migrate_to_v3(engine: Engine) -> None:
     """Migrate from version 2 to version 3.
 
     - Add `variant` column to `pulses`
+    - Add `annotations` column to `pulses`
     - Backfill values based on `is_reference`
     - delete is_reference column
     """
@@ -41,6 +42,13 @@ def _migrate_to_v3(engine: Engine) -> None:
         # Add variant column as TEXT (SQLite is lenient; ORM maps Enum -> TEXT/Check)
         connection.execute(
             text(f"ALTER TABLE {PulseDB.__tablename__} ADD COLUMN variant TEXT")
+        )
+
+        # Add annotations column to store JSON list of KVPair
+        connection.execute(
+            text(
+                f"ALTER TABLE {PulseDB.__tablename__} ADD COLUMN annotations TEXT"
+            )
         )
 
         # Backfill reference vs sample
@@ -57,6 +65,10 @@ def _migrate_to_v3(engine: Engine) -> None:
         # Drop is_reference column
         connection.execute(
             text(f"ALTER TABLE {PulseDB.__tablename__} DROP COLUMN is_reference")
+        )
+        # Initialize annotations to empty array JSON for existing rows
+        connection.execute(
+            text(f"UPDATE {PulseDB.__tablename__} SET annotations = '[]' WHERE annotations IS NULL")
         )
         connection.commit()
     # Update the existing schema version row to version 3

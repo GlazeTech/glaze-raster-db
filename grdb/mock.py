@@ -5,7 +5,7 @@ import uuid
 from grdb.models import (
     AxesMapping,
     AxisMap,
-    BaseMeasurement,
+    BaseTrace,
     CoordinateTransform,
     DeviceMetadata,
     KVPair,
@@ -13,11 +13,11 @@ from grdb.models import (
     Point3D,
     Point3DFullyDefined,
     PulseComposition,
-    PulseVariant,
     RasterConfig,
     RasterMetadata,
     RasterPattern,
-    RasterResult,
+    Trace,
+    TraceVariant,
 )
 
 
@@ -63,15 +63,15 @@ def make_dummy_coordinate_transform() -> CoordinateTransform:
     )
 
 
-def make_dummy_raster_results(
-    variant: PulseVariant,
+def make_dummy_measurement(
+    variant: TraceVariant,
     n_results: int = 2,
     pulse_length: int = 3,
     composed_of_n: int = 0,
-) -> list[RasterResult]:
+) -> list[Measurement]:
     return [
-        RasterResult(
-            pulse=make_dummy_measurement(
+        Measurement(
+            pulse=make_dummy_trace(
                 pulse_length=pulse_length, composed_of_n=composed_of_n
             ),
             point=Point3D(x=float(i), y=float(i), z=float(i)),
@@ -82,15 +82,13 @@ def make_dummy_raster_results(
     ]
 
 
-def make_dummy_measurement(
-    pulse_length: int = 2, composed_of_n: int = 0
-) -> Measurement:
+def make_dummy_trace(pulse_length: int = 2, composed_of_n: int = 0) -> Trace:
     composition = (
         make_dummy_composition(composed_of_n=composed_of_n, pulse_length=pulse_length)
         if composed_of_n > 0
         else None
     )
-    return Measurement(
+    return Trace(
         time=[1.0 * i for i in range(pulse_length)],
         signal=[random.random() for _ in range(pulse_length)],  # noqa: S311
         uuid=uuid.uuid4(),
@@ -104,7 +102,7 @@ def make_dummy_composition(
 ) -> list[PulseComposition]:
     return [
         PulseComposition(
-            pulse=make_dummy_base_measurement(pulse_length=pulse_length),
+            pulse=make_dummy_basetrace(pulse_length=pulse_length),
             position=i,
             shift=i * 10e-12,
         )
@@ -112,8 +110,8 @@ def make_dummy_composition(
     ]
 
 
-def make_dummy_base_measurement(pulse_length: int = 2) -> BaseMeasurement:
-    return BaseMeasurement(
+def make_dummy_basetrace(pulse_length: int = 2) -> BaseTrace:
+    return BaseTrace(
         time=[1.0 * i for i in range(pulse_length)],
         signal=[random.random() for _ in range(pulse_length)],  # noqa: S311
         uuid=uuid.uuid4(),

@@ -12,16 +12,16 @@ from grdb.crud import (
     load_pulses,
 )
 from grdb.mock import (
+    make_dummy_measurement,
     make_dummy_metadata,
-    make_dummy_raster_results,
 )
 from grdb.models import (
-    BaseMeasurement,
+    BaseTrace,
     KVPair,
+    Measurement,
     PulseComposition,
     PulseDB,
-    PulseVariant,
-    RasterResult,
+    TraceVariant,
 )
 
 
@@ -34,7 +34,7 @@ def test_pack_unpack_floats_roundtrip() -> None:
 
 def test_crud_create_and_load(db_path: Path) -> None:
     config, device, meta = make_dummy_metadata()
-    refs = make_dummy_raster_results(variant=PulseVariant.reference)
+    refs = make_dummy_measurement(variant=TraceVariant.reference)
 
     create_and_save_raster_db(db_path, config, device, meta, refs)
 
@@ -61,12 +61,12 @@ def test_crud_create_and_load(db_path: Path) -> None:
 
 def test_append_and_batch(db_path: Path) -> None:
     config, device, meta = make_dummy_metadata()
-    refs = make_dummy_raster_results(
-        variant=PulseVariant.reference
-    ) + make_dummy_raster_results(composed_of_n=1, variant=PulseVariant.reference)
-    sams = make_dummy_raster_results(
-        variant=PulseVariant.sample
-    ) + make_dummy_raster_results(composed_of_n=2, variant=PulseVariant.sample)
+    refs = make_dummy_measurement(
+        variant=TraceVariant.reference
+    ) + make_dummy_measurement(composed_of_n=1, variant=TraceVariant.reference)
+    sams = make_dummy_measurement(variant=TraceVariant.sample) + make_dummy_measurement(
+        composed_of_n=2, variant=TraceVariant.sample
+    )
     create_and_save_raster_db(db_path, config, device, meta, refs)
 
     add_pulses(db_path, sams)
@@ -78,7 +78,7 @@ def test_append_and_batch(db_path: Path) -> None:
 
 def test_update_annotations_and_reload(db_path: Path) -> None:
     config, device, meta = make_dummy_metadata()
-    refs = make_dummy_raster_results(variant=PulseVariant.reference)
+    refs = make_dummy_measurement(variant=TraceVariant.reference)
 
     create_and_save_raster_db(db_path, config, device, meta, refs)
     # Update annotations
@@ -116,7 +116,7 @@ def test_create_db_and_unlink_file(db_path: Path) -> None:
     """Test creating a database file, writing to it, and then unlinking it."""
     # Create database with some data
     config, device, meta = make_dummy_metadata()
-    refs = make_dummy_raster_results(variant=PulseVariant.reference)
+    refs = make_dummy_measurement(variant=TraceVariant.reference)
 
     # Create and save the database
     create_and_save_raster_db(db_path, config, device, meta, refs)
@@ -137,7 +137,7 @@ def test_create_db_and_unlink_file(db_path: Path) -> None:
 
 
 def _assert_raster_results_are_equal(
-    results1: list[RasterResult], results2: list[RasterResult]
+    results1: list[Measurement], results2: list[Measurement]
 ) -> None:
     """Assert that two lists of RasterResult are equal in content."""
     assert len(results1) == len(results2), "RasterResult lists have different lengths"
@@ -171,9 +171,7 @@ def _assert_pulse_compositions_are_equal(
     _assert_base_measurements_are_equal(comp1.pulse, comp2.pulse)
 
 
-def _assert_base_measurements_are_equal(
-    meas1: BaseMeasurement, meas2: BaseMeasurement
-) -> None:
+def _assert_base_measurements_are_equal(meas1: BaseTrace, meas2: BaseTrace) -> None:
     """Assert that two BaseMeasurement instances are equal in content."""
     assert meas1.uuid == meas2.uuid
     assert meas1.timestamp == meas2.timestamp
