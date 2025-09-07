@@ -65,11 +65,11 @@ def add_pulses(
     path: Path,
     pulses: Sequence[Measurement],
 ) -> None:
-    """Append non-reference pulses to an existing raster DB.
+    """Append pulses to an existing raster DB.
 
     Args:
         path: SQLite DB file path.
-        pulses: Sample pulses to insert.
+        pulses: Measurements to insert (any variant).
     """
     with Session(_make_engine(path)) as session:
         pulse_objs = [PulseDB.from_measurement(p) for p in pulses]
@@ -186,8 +186,8 @@ def _persist_pulse_compositions(
 ) -> None:
     """Persist composition metadata and source pulses for stitched results.
 
-    For each RasterResult that has ``pulse.derived_from`` defined, ensure that:
-    - Each source BaseMeasurement exists as a PulseDB row (with minimal fields)
+    For each Measurement that has ``pulse.derived_from`` defined, ensure that:
+    - Each source BaseTrace exists as a PulseDB row (with minimal fields)
     - A PulseCompositionTable row links the final pulse to each source with
       the recorded position and shift.
     """
@@ -283,7 +283,7 @@ def _get_final_pulse_sources(
 def _get_source_measurements(
     session: Session, final_pulse_sources: dict[UUID, list[PulseCompositionTable]]
 ) -> dict[UUID, BaseTrace]:
-    """Load all source pulses and map them to BaseMeasurement by UUID."""
+    """Load all source pulses and map them to BaseTrace by UUID."""
     source_ids: set[UUID] = set()
     for composition_rows in final_pulse_sources.values():
         for row in composition_rows:

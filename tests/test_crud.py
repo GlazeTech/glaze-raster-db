@@ -180,7 +180,7 @@ def test_create_db_and_unlink_file(db_path: Path) -> None:
 def _assert_raster_results_are_equal(
     results1: list[Measurement], results2: list[Measurement]
 ) -> None:
-    """Assert that two lists of RasterResult are equal in content."""
+    """Assert that two lists of Measurements are equal in content."""
     assert len(results1) == len(results2)
     results2_by_uuid = {res.pulse.uuid: res for res in results2}
     for res1 in results1:
@@ -218,7 +218,7 @@ def _assert_pulse_compositions_are_equal(
 
 
 def _assert_base_measurements_are_equal(meas1: BaseTrace, meas2: BaseTrace) -> None:
-    """Assert that two BaseMeasurement instances are equal in content."""
+    """Assert that two BaseTrace instances are equal in content."""
     assert meas1.uuid == meas2.uuid
     assert meas1.timestamp == meas2.timestamp
     assert meas1.time == pytest.approx(meas2.time)
