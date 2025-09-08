@@ -159,7 +159,7 @@ def load_pulses(
         return results
 
 
-def add_annotations(
+def update_annotations(
     path: Path,
     annotations: list[KVPair],
 ) -> None:

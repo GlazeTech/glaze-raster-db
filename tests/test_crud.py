@@ -5,11 +5,11 @@ from pathlib import Path
 import pytest
 
 from grdb.crud import (
-    add_annotations,
     add_pulses,
     create_db,
     load_metadata,
     load_pulses,
+    update_annotations,
 )
 from grdb.models import (
     BaseTrace,
@@ -90,7 +90,7 @@ def test_update_annotations_and_reload(db_path: Path) -> None:
     create_db(db_path, config, device, meta)
     # Update annotations
     new_annotations = [KVPair(key="x", value=1), KVPair(key="y", value=2)]
-    add_annotations(db_path, new_annotations)
+    update_annotations(db_path, new_annotations)
     # Reload metadata
     _, _, reloaded_meta, _, _ = load_metadata(db_path)
     keys_values = {pair.key: pair.value for pair in reloaded_meta.annotations}
