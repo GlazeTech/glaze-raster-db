@@ -1,4 +1,4 @@
-from typing import Callable
+from collections.abc import Callable
 
 from sqlalchemy import Engine, text
 from sqlmodel import Session, select

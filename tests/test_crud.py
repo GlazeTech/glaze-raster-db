@@ -204,7 +204,9 @@ def _assert_derived_from_are_equal(res1: Measurement, res2: Measurement) -> None
     else:
         assert res2.pulse.derived_from is not None
         assert len(res1.pulse.derived_from) == len(res2.pulse.derived_from)
-        for comp1, comp2 in zip(res1.pulse.derived_from, res2.pulse.derived_from):
+        for comp1, comp2 in zip(
+            res1.pulse.derived_from, res2.pulse.derived_from, strict=False
+        ):
             _assert_pulse_compositions_are_equal(comp1, comp2)
 
 
@@ -232,6 +234,6 @@ def _assert_annotations_are_equal(res1: Measurement, res2: Measurement) -> None:
     else:
         assert res2.annotations is not None
         assert len(res1.annotations) == len(res2.annotations)
-        for ann1, ann2 in zip(res1.annotations, res2.annotations):
+        for ann1, ann2 in zip(res1.annotations, res2.annotations, strict=False):
             assert ann1.key == ann2.key
             assert ann1.value == ann2.value
