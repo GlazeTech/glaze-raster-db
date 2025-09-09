@@ -33,7 +33,7 @@ from grdb.crud import (
     add_pulses,
     load_metadata,
     load_pulses,
-    add_annotations,
+    update_annotations,
 )
 from grdb.models import (
     RasterConfig,
@@ -80,7 +80,7 @@ user_coords = CoordinateTransform(
 raster_meta.user_coordinates = user_coords  # Add to metadata
 
 # Create the database (metadata only)
-create_and_save_raster_db(
+create_db(
     db_path,
     raster_config,
     device_meta,
@@ -107,5 +107,5 @@ samples_batch = load_pulses(db_path, offset=0, limit=50, variant=TraceVariant.sa
 
 # Update annotations
 new_annotations = [KVPair(key="status", value="verified")]
-add_annotations(db_path, new_annotations)
+update_annotations(db_path, new_annotations)
 ```

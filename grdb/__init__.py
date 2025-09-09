@@ -15,6 +15,5 @@ __all__ = [
     "create_db",
     "load_metadata",
     "load_pulses",
-    "read_pulse_compositions_from_db",
     "update_annotations",
 ]

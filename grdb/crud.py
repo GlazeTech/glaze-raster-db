@@ -1,10 +1,8 @@
-import json
-from collections.abc import Sequence
-from pathlib import Path
-from typing import Optional
-from uuid import UUID
+from __future__ import annotations
 
-from sqlalchemy import Engine
+import json
+from typing import TYPE_CHECKING
+
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import NullPool
 from sqlmodel import Session, create_engine, func, select
@@ -26,6 +24,13 @@ from grdb.models import (
     SchemaVersion,
     TraceVariant,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from pathlib import Path
+    from uuid import UUID
+
+    from sqlalchemy import Engine
 
 
 def create_db(
@@ -127,7 +132,7 @@ def load_pulses(
     path: Path,
     offset: int,
     limit: int,
-    variant: Optional[TraceVariant] = None,
+    variant: TraceVariant | None = None,
 ) -> list[Measurement]:
     """Load a batch of user-facing pulses with stitching info.
 
@@ -231,7 +236,7 @@ def _ensure_schema_compatibility(engine: Engine) -> None:
         schema_version += 1
 
 
-def _get_schema_version(engine: Engine) -> Optional[int]:
+def _get_schema_version(engine: Engine) -> int | None:
     """Get the current schema version from the database."""
     with Session(engine) as session:
         try:
@@ -243,7 +248,7 @@ def _get_schema_version(engine: Engine) -> Optional[int]:
 
 
 def _get_final_pulses(
-    session: Session, offset: int, limit: int, variant: Optional[TraceVariant] = None
+    session: Session, offset: int, limit: int, variant: TraceVariant | None = None
 ) -> Sequence[PulseDB]:
     """Return pulses not used as a source in any composition (aka final pulses).
 
@@ -301,7 +306,7 @@ def _build_stitching_info(
     derived_uuid: UUID,
     final_pulse_sources: dict[UUID, list[PulseCompositionTable]],
     sources: dict[UUID, BaseTrace],
-) -> Optional[list[PulseComposition]]:
+) -> list[PulseComposition] | None:
     """Create ordered stitching info for a derived pulse, if compositions exist."""
     comp_rows = final_pulse_sources.get(derived_uuid)
     if not comp_rows:
