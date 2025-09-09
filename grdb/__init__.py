@@ -11,10 +11,10 @@ from .crud import (
 
 __all__ = [
     "__version__",
-    "update_annotations",
     "add_pulses",
     "create_db",
     "load_metadata",
     "load_pulses",
     "read_pulse_compositions_from_db",
+    "update_annotations",
 ]
