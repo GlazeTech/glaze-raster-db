@@ -153,8 +153,7 @@ def load_pulses(
             stitching = _build_stitching_info(
                 final_pulse.uuid, final_pulse_sources, sources
             )
-            result = PulseDB.to_measurement(final_pulse, stitching)
-            results.append(result)
+            results.append(final_pulse.to_measurement(stitching))
 
         return results
 
@@ -191,19 +190,11 @@ def _persist_pulse_compositions(
     - A PulseCompositionTable row links the final pulse to each source with
       the recorded position and shift.
     """
-    # Insert source pulses first
     for res in results:
         if not res.pulse.derived_from:
             continue
         for measurement in res.pulse.derived_from:
             session.add(PulseDB.from_basetrace(measurement.pulse))
-    session.commit()
-
-    # Now insert composition links
-    for res in results:
-        if not res.pulse.derived_from:
-            continue
-        for measurement in res.pulse.derived_from:
             session.add(
                 PulseCompositionTable(
                     final_uuid=res.pulse.uuid,
@@ -212,6 +203,7 @@ def _persist_pulse_compositions(
                     shift=measurement.shift,
                 )
             )
+
     session.commit()
 
 
@@ -307,22 +299,22 @@ def _get_source_measurements(
 
 def _build_stitching_info(
     derived_uuid: UUID,
-    comps_by_derived: dict[UUID, list[PulseCompositionTable]],
-    sources_by_uuid: dict[UUID, BaseTrace],
+    final_pulse_sources: dict[UUID, list[PulseCompositionTable]],
+    sources: dict[UUID, BaseTrace],
 ) -> Optional[list[PulseComposition]]:
     """Create ordered stitching info for a derived pulse, if compositions exist."""
-    comp_rows = comps_by_derived.get(derived_uuid)
+    comp_rows = final_pulse_sources.get(derived_uuid)
     if not comp_rows:
         return None
 
     comp_rows_sorted = sorted(comp_rows, key=lambda r: r.position)
     stitching: list[PulseComposition] = [
         PulseComposition(
-            pulse=sources_by_uuid[row.source_uuid],
+            pulse=sources[row.source_uuid],
             position=row.position,
             shift=row.shift,
         )
         for row in comp_rows_sorted
-        if row.source_uuid in sources_by_uuid
+        if row.source_uuid in sources
     ]
     return stitching or None
