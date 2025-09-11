@@ -2,6 +2,7 @@ from sqlalchemy import Engine, Table
 from sqlmodel import SQLModel
 
 from grdb.models import (
+    PulseCompositionTable,
     PulseDB,
     RasterInfoDB,
     SchemaVersion,
@@ -20,6 +21,7 @@ def _get_tables() -> list[Table]:
         for table_name in [
             RasterInfoDB.__tablename__,
             PulseDB.__tablename__,
+            PulseCompositionTable.__tablename__,
             SchemaVersion.__tablename__,
         ]
     ]

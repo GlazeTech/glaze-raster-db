@@ -1,18 +1,28 @@
+from __future__ import annotations
+
 import json
 import struct
-from typing import Any, Literal, Optional, Union
+from enum import Enum
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, model_validator
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 GRDB_METADATA = MetaData()
 
 # Current schema version - increment when making breaking changes
-CURRENT_SCHEMA_VERSION = 2  # v0.1.0 = 1, v0.2.0 = 2
+CURRENT_SCHEMA_VERSION = 3  # v0.1.0 = 1, v0.2.0 = 2, v0.3.0 = 3
 Axis = Literal["x", "y", "z"]
 Sign = Literal[1, -1]
+
+
+class TraceVariant(str, Enum):
+    reference = "reference"
+    sample = "sample"
+    noise = "noise"
+    other = "other"
 
 
 class GRDBBase(SQLModel, metadata=GRDB_METADATA):
@@ -33,9 +43,9 @@ class DeviceMetadata(BaseModel):
 
 
 class Point3D(BaseModel):
-    x: Optional[float]
-    y: Optional[float]
-    z: Optional[float]
+    x: float | None
+    y: float | None
+    z: float | None
 
 
 class Point3DFullyDefined(BaseModel):
@@ -52,13 +62,13 @@ class RasterPattern(BaseModel):
 class RasterConfig(BaseModel):
     patterns: list[RasterPattern]
     stepsize: float
-    reference_point: Optional[Point3D]
-    acquire_ref_every: Optional[int]
+    reference_point: Point3D | None
+    acquire_ref_every: int | None
 
 
 class KVPair(BaseModel):
     key: str
-    value: Union[str, int, float]
+    value: str | int | float
 
 
 class AxisMap(BaseModel):
@@ -72,7 +82,7 @@ class AxesMapping(BaseModel):
     z: AxisMap
 
     @model_validator(mode="after")
-    def validate_unique_axis_mapping(self) -> "AxesMapping":
+    def validate_unique_axis_mapping(self) -> AxesMapping:
         """Ensure each axis (x, y, z) maps to a unique target axis."""
         axes = [self.x.axis, self.y.axis, self.z.axis]
         if len(axes) != len(set(axes)):
@@ -89,29 +99,52 @@ class CoordinateTransform(BaseModel):
     offset: Point3DFullyDefined  # offset from user to machine coordinates
     mapping: AxesMapping
     last_used: int  # timestamp of last use (milliseconds since UNIX epoch)
-    notes: Optional[str] = None  # optional free text
+    notes: str | None = None  # optional free text
 
 
 class RasterMetadata(BaseModel):
     app_version: str
-    raster_id: Optional[UUID] = None
+    raster_id: UUID | None = None
     timestamp: int
     annotations: list[KVPair]
     device_configuration: dict[str, Any]
-    user_coordinates: Optional[CoordinateTransform] = None
+    user_coordinates: CoordinateTransform | None = None
 
 
-class Measurement(BaseModel):
+class BaseTrace(BaseModel):
     time: list[float]
     signal: list[float]
     uuid: UUID
     timestamp: int
 
 
-class RasterResult(BaseModel):
-    pulse: Measurement
+class PulseComposition(BaseModel):
+    """User-facing composition item for a stitched pulse.
+
+    Contains the source pulse data and metadata about how it was used.
+    """
+
+    pulse: BaseTrace
+    position: int
+    shift: float
+
+
+class Trace(BaseTrace):
+    """User-facing pulse model that may include stitching information.
+
+    When a pulse is a stitched result, ``stitching_info`` lists the
+    component pulses in their enumerated order with the applied shifts.
+    """
+
+    derived_from: list[PulseComposition] | None = None
+
+
+class Measurement(BaseModel):
+    pulse: Trace
     point: Point3D
-    reference: Optional[UUID] = None
+    variant: TraceVariant
+    reference: UUID | None = None
+    annotations: list[KVPair] | None = None
 
 
 class RasterInfoDB(GRDBBase, table=True):
@@ -133,19 +166,19 @@ class RasterInfoDB(GRDBBase, table=True):
     # RasterConfig fields
     patterns: str  # JSON string
     stepsize: float
-    reference_point: Optional[str] = None  # JSON string
-    acquire_ref_every: Optional[int] = None
+    reference_point: str | None = None  # JSON string
+    acquire_ref_every: int | None = None
 
     # Coordinate system transformation (added in v0.2.0)
-    user_coordinates: Optional[str] = None  # JSON string of CoordinateTransform
+    user_coordinates: str | None = None  # JSON string of CoordinateTransform
 
     @classmethod
     def from_api(
-        cls: type["RasterInfoDB"],
-        config: "RasterConfig",
-        meta: "RasterMetadata",
-        device: "DeviceMetadata",
-    ) -> "RasterInfoDB":
+        cls: type[RasterInfoDB],
+        config: RasterConfig,
+        meta: RasterMetadata,
+        device: DeviceMetadata,
+    ) -> RasterInfoDB:
         return cls(
             id=meta.raster_id,
             device_serial_number=device.device_serial_number,
@@ -169,7 +202,7 @@ class RasterInfoDB(GRDBBase, table=True):
             ),
         )
 
-    def to_raster_config(self: "RasterInfoDB") -> RasterConfig:
+    def to_raster_config(self: RasterInfoDB) -> RasterConfig:
         return RasterConfig(
             patterns=[
                 RasterPattern.model_validate(p) for p in json.loads(self.patterns)
@@ -183,13 +216,13 @@ class RasterInfoDB(GRDBBase, table=True):
             acquire_ref_every=self.acquire_ref_every,
         )
 
-    def to_device_metadata(self: "RasterInfoDB") -> DeviceMetadata:
+    def to_device_metadata(self: RasterInfoDB) -> DeviceMetadata:
         return DeviceMetadata(
             device_serial_number=self.device_serial_number,
             device_firmware_version=self.device_firmware_version,
         )
 
-    def to_raster_metadata(self: "RasterInfoDB") -> RasterMetadata:
+    def to_raster_metadata(self: RasterInfoDB) -> RasterMetadata:
         return RasterMetadata(
             raster_id=self.id,
             app_version=self.app_version,
@@ -201,7 +234,7 @@ class RasterInfoDB(GRDBBase, table=True):
             user_coordinates=self.to_coordinate_transform(),
         )
 
-    def to_coordinate_transform(self: "RasterInfoDB") -> Optional[CoordinateTransform]:
+    def to_coordinate_transform(self: RasterInfoDB) -> CoordinateTransform | None:
         """Convert user_coordinates JSON string to CoordinateTransform object."""
         if self.user_coordinates is None:
             return None
@@ -214,23 +247,20 @@ class PulseDB(GRDBBase, table=True):
     time: bytes  # packed float32 array
     signal: bytes
     timestamp: int  # ms since UNIX epoch
-    is_reference: bool
-    x: Optional[float]
-    y: Optional[float]
-    z: Optional[float]
-    reference: Optional[UUID]
+    x: float | None
+    y: float | None
+    z: float | None
+    reference: UUID | None
+    variant: TraceVariant
+    annotations: str | None = Field(
+        default_factory=lambda: json.dumps([])
+    )  # JSON string of list[KVPair]
 
     @classmethod
-    def from_raster_result(
-        cls: type["PulseDB"],
-        result: "RasterResult",
-        *,
-        is_reference: bool,
-    ) -> "PulseDB":
+    def from_measurement(cls: type[PulseDB], result: Measurement) -> PulseDB:
         time_bytes = cls.pack_floats(result.pulse.time)
         signal_bytes = cls.pack_floats(result.pulse.signal)
         return cls(
-            is_reference=is_reference,
             time=time_bytes,
             signal=signal_bytes,
             timestamp=result.pulse.timestamp,
@@ -239,18 +269,46 @@ class PulseDB(GRDBBase, table=True):
             y=result.point.y,
             z=result.point.z,
             reference=result.reference,
+            variant=result.variant,
+            annotations=json.dumps(
+                [a.model_dump() for a in (result.annotations or [])]
+            ),
         )
 
-    def to_raster_result(self: "PulseDB") -> RasterResult:
-        return RasterResult(
-            pulse=Measurement(
+    @classmethod
+    def from_basetrace(cls: type[PulseDB], measurement: BaseTrace) -> PulseDB:
+        time_bytes = cls.pack_floats(measurement.time)
+        signal_bytes = cls.pack_floats(measurement.signal)
+        return PulseDB(
+            time=time_bytes,
+            signal=signal_bytes,
+            timestamp=measurement.timestamp,
+            uuid=measurement.uuid,
+            x=None,
+            y=None,
+            z=None,
+            reference=None,
+            variant=TraceVariant.other,
+            annotations=json.dumps([]),
+        )
+
+    def to_measurement(
+        self: PulseDB, stitching: list[PulseComposition] | None
+    ) -> Measurement:
+        return Measurement(
+            pulse=Trace(
                 uuid=self.uuid,
                 timestamp=self.timestamp,
                 time=self.unpack_floats(self.time),
                 signal=self.unpack_floats(self.signal),
+                derived_from=stitching,
             ),
             point=Point3D(x=self.x, y=self.y, z=self.z),
             reference=self.reference,
+            variant=self.variant,
+            annotations=[
+                KVPair.model_validate(a) for a in json.loads(self.annotations or "[]")
+            ],
         )
 
     @staticmethod
@@ -280,3 +338,23 @@ class PulseDB(GRDBBase, table=True):
         """
         count = len(blob) // 4
         return list(struct.unpack(f"<{count}f", blob))
+
+
+class PulseCompositionTable(GRDBBase, table=True):
+    """Associates a derived pulse with its source pulses.
+
+    A "final" (stitched) pulse is represented as a normal PulseDB. Its composition is captured here by linking the
+    derived pulse UUID to one or more source pulse UUIDs in a defined order.
+    """
+
+    __tablename__ = "pulse_composition"
+    __table_args__ = (
+        UniqueConstraint("final_uuid", "position"),
+        UniqueConstraint("final_uuid", "source_uuid"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    final_uuid: UUID = Field(foreign_key="pulses.uuid", index=True)
+    source_uuid: UUID = Field(foreign_key="pulses.uuid", index=True)
+    position: int
+    shift: float

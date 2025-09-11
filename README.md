@@ -9,16 +9,31 @@ A Python library for creating and managing raster SQLite databases of pulse meas
 pip install grdb @ git+ssh://git@github.com/GlazeTech/glaze-raster-db.git@<VERSION_NUMBER>",
 ```
 
+
+## Pulse Composition
+
+Some pulses are stitched from one or more source pulses. In the public API this is represented by `Measurement.pulse.derived_from`, which is a list of `PulseComposition` items containing the source `BaseTrace`, its `position` in the stitched order, and the applied `shift`.
+
+- Persistence: When inserting pulses via `add_pulses`, the library:
+  - Stores each final (stitched or non-stitched) pulse in the `pulses` table.
+  - If `derived_from` is present, ensures each source pulse exists in `pulses` with minimal fields (time, signal, uuid, timestamp) and `x/y/z/reference=None`.
+  - Writes one row per component to `pulse_composition` linking `final_uuid -> source_uuid` with the recorded `position` and `shift`.
+  - Uniqueness constraints on `(final_uuid, position)` and `(final_uuid, source_uuid)` prevent duplicates.
+
+- Loading: `load_pulses` returns only user-facing “final” pulses — i.e., pulses that are not used as a source in any composition. For stitched pulses, it reconstructs `derived_from` by joining `pulse_composition` with the stored source pulses and ordering by `position`. Pass `variant` to filter (e.g., `TraceVariant.reference`, `TraceVariant.sample`), or `None` to return all variants.
+
+- Counting: `load_metadata` reports counts of reference and sample pulses among these final pulses only. Internal source components are excluded from the totals.
+
 ## Quickstart
 
 ```python
 from pathlib import Path
 from grdb.crud import (
     create_and_save_raster_db,
-    append_pulses_to_db,
-    load_raster_metadata_from_db,
-    load_pulse_batch_from_db,
-    update_raster_annotations,
+    add_pulses,
+    load_metadata,
+    load_pulses,
+    update_annotations,
 )
 from grdb.models import (
     RasterConfig,
@@ -27,7 +42,8 @@ from grdb.models import (
     CoordinateTransform,
     Point3D,
     KVPair,
-    RasterResult,
+    Measurement,
+    TraceVariant,
 )
 
 # Define paths and metadata/config
@@ -52,8 +68,8 @@ raster_meta = RasterMetadata(
     device_configuration={"mode": "auto"},
 )
 
-# Reference pulses
-references: list[RasterResult] = [...]  # gather RasterResult objects
+# Measurements (references and/or samples)
+references: list[Measurement] = [...]
 
 # Optional: Define coordinate system transformation in metadata
 user_coords = CoordinateTransform(
@@ -63,21 +79,21 @@ user_coords = CoordinateTransform(
 )
 raster_meta.user_coordinates = user_coords  # Add to metadata
 
-# Create and populate the database
-create_and_save_raster_db(
+# Create the database (metadata only)
+create_db(
     db_path,
     raster_config,
     device_meta,
     raster_meta,
-    references,
 )
 
-# Append additional sample pulses
-sample_pulses: list[RasterResult] = [...]  # new RasterResult objects
-append_pulses_to_db(db_path, sample_pulses)
+# Add pulses (references and samples)
+add_pulses(db_path, references)
+sample_pulses: list[Measurement] = [...]
+add_pulses(db_path, sample_pulses)
 
 # Load metadata and counts
-config, dev_meta, meta, n_refs, n_samples = load_raster_metadata_from_db(db_path)
+config, dev_meta, meta, n_refs, n_samples = load_metadata(db_path)
 print(f"Loaded {n_refs} reference and {n_samples} sample pulses")
 if meta.user_coordinates:
     print(f"Database has coordinate transform with scale: {meta.user_coordinates.scale}")
@@ -85,11 +101,11 @@ if meta.user_coordinates:
 if meta.user_coordinates:
     print(f"Metadata contains coordinate transform: {meta.user_coordinates}")
 
-# Load a batch of pulses
-refs_batch, samples_batch = load_pulse_batch_from_db(db_path, offset=0, limit=50)
+# Load a batch of pulses by variant
+refs_batch = load_pulses(db_path, offset=0, limit=50, variant=TraceVariant.reference)
+samples_batch = load_pulses(db_path, offset=0, limit=50, variant=TraceVariant.sample)
 
 # Update annotations
 new_annotations = [KVPair(key="status", value="verified")]
-update_raster_annotations(db_path, new_annotations)
+update_annotations(db_path, new_annotations)
 ```
-
