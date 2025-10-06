@@ -5,107 +5,52 @@ A Python library for creating and managing raster SQLite databases of pulse meas
 
 ## Installation
 
+To install the latest version
 ```bash
-pip install grdb @ git+ssh://git@github.com/GlazeTech/glaze-raster-db.git@<VERSION_NUMBER>",
+pip install git+https://github.com/GlazeTech/glaze-raster-db.git
+```
+
+To install a specific version (e.g. v0.1.0)
+```bash
+pip install git+https://github.com/GlazeTech/glaze-raster-db.git@0.1.0
 ```
 
 
-## Pulse Composition
+## Examples
 
-Some pulses are stitched from one or more source pulses. In the public API this is represented by `Measurement.pulse.derived_from`, which is a list of `PulseComposition` items containing the source `BaseTrace`, its `position` in the stitched order, and the applied `shift`.
+### Loading Pulses
 
-- Persistence: When inserting pulses via `add_pulses`, the library:
-  - Stores each final (stitched or non-stitched) pulse in the `pulses` table.
-  - If `derived_from` is present, ensures each source pulse exists in `pulses` with minimal fields (time, signal, uuid, timestamp) and `x/y/z/reference=None`.
-  - Writes one row per component to `pulse_composition` linking `final_uuid -> source_uuid` with the recorded `position` and `shift`.
-  - Uniqueness constraints on `(final_uuid, position)` and `(final_uuid, source_uuid)` prevent duplicates.
-
-- Loading: `load_pulses` returns only user-facing “final” pulses — i.e., pulses that are not used as a source in any composition. For stitched pulses, it reconstructs `derived_from` by joining `pulse_composition` with the stored source pulses and ordering by `position`. Pass `variant` to filter (e.g., `TraceVariant.reference`, `TraceVariant.sample`), or `None` to return all variants.
-
-- Counting: `load_metadata` reports counts of reference and sample pulses among these final pulses only. Internal source components are excluded from the totals.
-
-## Quickstart
-
+**Load sample pulses:**
 ```python
 from pathlib import Path
-from grdb.crud import (
-    create_and_save_raster_db,
-    add_pulses,
-    load_metadata,
-    load_pulses,
-    update_annotations,
-)
-from grdb.models import (
-    RasterConfig,
-    DeviceMetadata,
-    RasterMetadata,
-    CoordinateTransform,
-    Point3D,
-    KVPair,
-    Measurement,
-    TraceVariant,
-)
+from grdb.crud import load_pulses
+from grdb.models import TraceVariant
 
-# Define paths and metadata/config
-db_path = Path("raster.db")
-raster_config = RasterConfig(
-    patterns=[...],  # list of RasterPattern
-    stepsize=0.5,
-    reference_point=None,
-    acquire_ref_every=10,
-)
+db_path = Path("raster.grf")
 
-device_meta = DeviceMetadata(
-    device_serial_number="SN123456",
-    device_firmware_version="1.0.0",
-)
+# Load first 100 sample pulses
+samples = load_pulses(db_path, offset=0, limit=100, variant=TraceVariant.sample)
+```
 
-annotations = [KVPair(key="operator", value="Alice")]
-raster_meta = RasterMetadata(
-    app_version="0.1.0",
-    timestamp=1616161616161,
-    annotations=annotations,
-    device_configuration={"mode": "auto"},
-)
+**Load reference pulses:**
+```python
+from pathlib import Path
+from grdb.crud import load_pulses
+from grdb.models import TraceVariant
 
-# Measurements (references and/or samples)
-references: list[Measurement] = [...]
+db_path = Path("raster.grf")
 
-# Optional: Define coordinate system transformation in metadata
-user_coords = CoordinateTransform(
-    translation=Point3D(x=1000.0, y=2000.0, z=0.0),  # Offset in machine units
-    rotation=Point3D(x=0.0, y=0.0, z=0.785398),     # 45° rotation around Z
-    scale=Point3D(x=1000.0, y=1000.0, z=1000.0),    # μm to mm conversion
-)
-raster_meta.user_coordinates = user_coords  # Add to metadata
+# Load first 50 reference pulses
+references = load_pulses(db_path, offset=0, limit=50, variant=TraceVariant.reference)
+```
 
-# Create the database (metadata only)
-create_db(
-    db_path,
-    raster_config,
-    device_meta,
-    raster_meta,
-)
+**Load all pulses (both samples and references):**
+```python
+from pathlib import Path
+from grdb.crud import load_pulses
 
-# Add pulses (references and samples)
-add_pulses(db_path, references)
-sample_pulses: list[Measurement] = [...]
-add_pulses(db_path, sample_pulses)
+db_path = Path("raster.grf")
 
-# Load metadata and counts
-config, dev_meta, meta, n_refs, n_samples = load_metadata(db_path)
-print(f"Loaded {n_refs} reference and {n_samples} sample pulses")
-if meta.user_coordinates:
-    print(f"Database has coordinate transform with scale: {meta.user_coordinates.scale}")
-# You can also access coordinates from the metadata
-if meta.user_coordinates:
-    print(f"Metadata contains coordinate transform: {meta.user_coordinates}")
-
-# Load a batch of pulses by variant
-refs_batch = load_pulses(db_path, offset=0, limit=50, variant=TraceVariant.reference)
-samples_batch = load_pulses(db_path, offset=0, limit=50, variant=TraceVariant.sample)
-
-# Update annotations
-new_annotations = [KVPair(key="status", value="verified")]
-update_annotations(db_path, new_annotations)
+# Load all pulse types (variant=None)
+all_pulses = load_pulses(db_path, offset=0, limit=1000, variant=None)
 ```
