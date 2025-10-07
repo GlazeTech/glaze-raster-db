@@ -21,7 +21,7 @@ dev = [
     "pytest>=7.0.1",
     "bumpver>=2024.1130",
     "pytest-cov>=6.1.1",
-    "glaze-cicd-utils @ git+ssh://git@github.com/GlazeTech/CICD-utils.git@bmo/doctest-deps"
+    "glaze-cicd-utils @ git+ssh://git@github.com/GlazeTech/CICD-utils.git"
 ]
 
 [tool.mypy]
