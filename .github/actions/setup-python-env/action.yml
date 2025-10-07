@@ -1,0 +1,32 @@
+name: 'Setup Python Environment'
+description: 'Sets up Python, SSH agent, and installs dependencies'
+inputs:
+  python-version:
+    description: 'Python version to use'
+    required: true
+  ssh-private-key:
+    description: 'SSH private key for accessing private repos'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - name: Start SSH agent and add key
+      uses: webfactory/ssh-agent@v0.7.0
+      with:
+        ssh-private-key: ${{ inputs.ssh-private-key }}
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: 'pip'
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    - name: Install dependencies
+      shell: bash
+      run: pip install .[dev]

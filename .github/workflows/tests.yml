@@ -14,39 +14,33 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install dependencies
-        run: pip install .[dev]
+          ssh-private-key: ${{ secrets.GLAZE_CICD_UTILS_SECRET }}
       - name: Run pytest
         run: pytest --cov=grdb --cov-report term --cov-fail-under=90
   mypy:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install dependencies
-        run: pip install .[dev]
+          ssh-private-key: ${{ secrets.GLAZE_CICD_UTILS_SECRET }}
       - name: Run mypy
         run: mypy .
   ruff:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install dependencies
-        run: pip install .[dev]
+          ssh-private-key: ${{ secrets.GLAZE_CICD_UTILS_SECRET }}
       - name: Run ruff linter
         run: ruff check .
       - name: Run ruff formatter
@@ -55,17 +49,11 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
-      - name: Set up SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.GLAZE_CICD_UTILS_SECRET }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan github.com >> ~/.ssh/known_hosts
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Setup Python environment
+        uses: ./.github/actions/setup-python-env
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          ssh-private-key: ${{ secrets.GLAZE_CICD_UTILS_SECRET }}
       - name: Install CI/CD utils
         run: pip install git+ssh://git@github.com/GlazeTech/CICD-utils.git
       - name: Validate version number
