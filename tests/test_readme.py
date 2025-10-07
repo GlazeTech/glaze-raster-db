@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import pytest
 from glaze_cicd_utils.doctest import DoctestDep, check_markdown_file
 
 from grdb.crud import add_pulses, create_db
 from grdb.models import TraceVariant
 from tests.mock import make_dummy_measurement, make_dummy_metadata
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def test_docfile(monkeypatch: pytest.MonkeyPatch) -> None:
