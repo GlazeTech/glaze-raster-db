@@ -14,6 +14,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
+      - uses: actions/checkout@v4
       - name: Setup Python environment
         uses: ./.github/actions/setup-python-env
         with:
@@ -25,6 +26,7 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Setup Python environment
         uses: ./.github/actions/setup-python-env
         with:
@@ -36,6 +38,7 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Setup Python environment
         uses: ./.github/actions/setup-python-env
         with:
@@ -49,6 +52,7 @@ jobs:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Setup Python environment
         uses: ./.github/actions/setup-python-env
         with:

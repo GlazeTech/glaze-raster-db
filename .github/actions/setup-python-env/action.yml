@@ -14,7 +14,6 @@ runs:
       uses: webfactory/ssh-agent@v0.7.0
       with:
         ssh-private-key: ${{ inputs.ssh-private-key }}
-    - uses: actions/checkout@v4
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
