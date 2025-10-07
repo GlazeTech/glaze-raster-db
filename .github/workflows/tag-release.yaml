@@ -28,5 +28,10 @@ jobs:
       - name: Install CI/CD utils
         run: |
           pip install git+ssh://git@github.com/GlazeTech/CICD-utils.git
-      - name: Tag if new version
+      - name: Assert version is new
+        id: assert_version
+        continue-on-error: true
+        run: assert-new-version --version-file pyproject.toml
+      - name: Create tag and push
+        if: steps.assert_version.outcome == 'success'
         run: assert-new-version --version-file pyproject.toml --tag-and-push
