@@ -192,6 +192,7 @@ def _assert_raster_results_are_equal(
         assert res1.point == res2.point
         assert res1.reference == res2.reference
         assert res1.variant == res2.variant
+        assert res1.pass_number == res2.pass_number
 
         _assert_annotations_are_equal(res1, res2)
         _assert_derived_from_are_equal(res1, res2)

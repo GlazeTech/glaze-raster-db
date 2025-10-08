@@ -13,7 +13,7 @@ from sqlmodel import Field, SQLModel
 GRDB_METADATA = MetaData()
 
 # Current schema version - increment when making breaking changes
-CURRENT_SCHEMA_VERSION = 3  # v0.1.0 = 1, v0.2.0 = 2, v0.3.0 = 3
+CURRENT_SCHEMA_VERSION = 4  # v0.1.0 = 1, v0.2.0 = 2, v0.3.0 = 3
 Axis = Literal["x", "y", "z"]
 Sign = Literal[1, -1]
 
@@ -102,6 +102,22 @@ class CoordinateTransform(BaseModel):
     notes: str | None = None  # optional free text
 
 
+class PassesConfig(BaseModel):
+    passes: int
+    interval_millisecs: float  # in milliseconds
+
+    @model_validator(mode="after")
+    def validate_passes_config(self) -> PassesConfig:
+        """Ensure passes and interval are positive."""
+        if self.passes <= 0:
+            msg = "Passes must be positive"
+            raise ValueError(msg)
+        if self.interval_millisecs <= 0:
+            msg = "Interval must be positive"
+            raise ValueError(msg)
+        return self
+
+
 class RasterMetadata(BaseModel):
     app_version: str
     raster_id: UUID | None = None
@@ -109,6 +125,7 @@ class RasterMetadata(BaseModel):
     annotations: list[KVPair]
     device_configuration: dict[str, Any]
     user_coordinates: CoordinateTransform | None = None
+    passes_config: PassesConfig | None = None
 
 
 class BaseTrace(BaseModel):
@@ -145,6 +162,7 @@ class Measurement(BaseModel):
     variant: TraceVariant
     reference: UUID | None = None
     annotations: list[KVPair] | None = None
+    pass_number: int | None = None  # optional pass number for multi-pass rasters
 
 
 class RasterInfoDB(GRDBBase, table=True):
@@ -168,6 +186,9 @@ class RasterInfoDB(GRDBBase, table=True):
     stepsize: float
     reference_point: str | None = None  # JSON string
     acquire_ref_every: int | None = None
+
+    # Passes configuration (added in v0.4.0)
+    passes_config: str | None = None  # JSON string of PassesConfig
 
     # Coordinate system transformation (added in v0.2.0)
     user_coordinates: str | None = None  # JSON string of CoordinateTransform
@@ -198,6 +219,11 @@ class RasterInfoDB(GRDBBase, table=True):
             user_coordinates=(
                 json.dumps(meta.user_coordinates.model_dump(mode="json"))
                 if meta.user_coordinates
+                else None
+            ),
+            passes_config=(
+                json.dumps(meta.passes_config.model_dump())
+                if meta.passes_config
                 else None
             ),
         )
@@ -232,6 +258,11 @@ class RasterInfoDB(GRDBBase, table=True):
             ],
             device_configuration=json.loads(self.device_configuration),
             user_coordinates=self.to_coordinate_transform(),
+            passes_config=(
+                PassesConfig.model_validate(json.loads(self.passes_config))
+                if self.passes_config
+                else None
+            ),
         )
 
     def to_coordinate_transform(self: RasterInfoDB) -> CoordinateTransform | None:
@@ -252,6 +283,7 @@ class PulseDB(GRDBBase, table=True):
     z: float | None
     reference: UUID | None
     variant: TraceVariant
+    pass_number: int | None
     annotations: str | None = Field(
         default_factory=lambda: json.dumps([])
     )  # JSON string of list[KVPair]
@@ -270,6 +302,7 @@ class PulseDB(GRDBBase, table=True):
             z=result.point.z,
             reference=result.reference,
             variant=result.variant,
+            pass_number=result.pass_number,
             annotations=json.dumps(
                 [a.model_dump() for a in (result.annotations or [])]
             ),
@@ -306,6 +339,7 @@ class PulseDB(GRDBBase, table=True):
             point=Point3D(x=self.x, y=self.y, z=self.z),
             reference=self.reference,
             variant=self.variant,
+            pass_number=self.pass_number,
             annotations=[
                 KVPair.model_validate(a) for a in json.loads(self.annotations or "[]")
             ],

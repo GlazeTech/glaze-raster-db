@@ -140,6 +140,7 @@ def make_measurement_variants() -> list[Measurement]:
         annotations: list[KVPair] | None = None,
         composed_of_n: int | None = 0,
         reference_uuid: uuid.UUID | None = None,
+        pass_number: int | None = None,
     ) -> Measurement:
         point = point or Point3D(x=None, y=None, z=None)
         variant = variant or TraceVariant.sample
@@ -151,6 +152,7 @@ def make_measurement_variants() -> list[Measurement]:
             reference=reference_uuid,
             variant=variant,
             annotations=annotations,
+            pass_number=pass_number,
         )
 
     def build_with_potential_ref(*, with_ref: bool = False) -> list[Measurement]:
@@ -179,6 +181,9 @@ def make_measurement_variants() -> list[Measurement]:
                 build(
                     annotations=[KVPair(key="f", value=3.14)], reference_uuid=ref_uuid
                 ),
+                build(pass_number=None),
+                build(pass_number=1),
+                build(pass_number=2),
             ]
         )
         return built

@@ -72,10 +72,34 @@ def _migrate_to_v3(engine: Engine) -> None:
         )
         connection.commit()
     # Update the existing schema version row to version 3
+    _update_schema_version(engine, 3)
+
+
+def _migrate_to_v4(engine: Engine) -> None:
+    """Migrate from version 3 to version 4.
+
+    - Add `pass_number` column to `pulses`
+    - Initialize values to NULL
+    """
+    # Ensure tables exist
+    create_tables(engine)
+
+    with engine.connect() as connection:
+        # Add pass_number column as INTEGER (nullable)
+        connection.execute(
+            text(f"ALTER TABLE {PulseDB.__tablename__} ADD COLUMN pass_number INTEGER")
+        )
+        connection.commit()
+
+    # Update the existing schema version row to version 4
+    _update_schema_version(engine, 4)
+
+
+def _update_schema_version(engine: Engine, new_version: int) -> None:
     with Session(engine) as session:
         version_row = session.exec(select(SchemaVersion)).first()
         if version_row is not None:
-            version_row.version = 3
+            version_row.version = new_version
             session.add(version_row)
             session.commit()
 
@@ -83,4 +107,5 @@ def _migrate_to_v3(engine: Engine) -> None:
 MIGRATION_SCRIPTS: dict[int, Callable[[Engine], None]] = {
     1: _migrate_to_v2,
     2: _migrate_to_v3,
+    3: _migrate_to_v4,
 }
