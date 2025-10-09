@@ -1,4 +1,4 @@
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 # Re-export public API functions for convenient imports, e.g.:
 from .crud import (
