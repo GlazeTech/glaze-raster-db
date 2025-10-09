@@ -76,8 +76,8 @@ def test_append_and_batch(db_path: Path) -> None:
         db_path, offset=0, limit=1000, variant=TraceVariant.sample
     )
 
-    _assert_raster_results_are_equal(refs, refs_loaded)
-    _assert_raster_results_are_equal(sams, samples_loaded)
+    _assert_measurements_are_equal(refs, refs_loaded)
+    _assert_measurements_are_equal(sams, samples_loaded)
 
 
 def test_update_annotations_and_reload(db_path: Path) -> None:
@@ -105,7 +105,7 @@ def test_measurement_field_variations_roundtrip(db_path: Path) -> None:
 
     loaded = load_pulses(db_path, offset=0, limit=1_000_000)
 
-    _assert_raster_results_are_equal(loaded, variants)
+    _assert_measurements_are_equal(loaded, variants)
 
 
 def test_load_metadata_no_file(db_path: Path) -> None:
@@ -146,8 +146,8 @@ def test_backward_load_compatibility() -> None:
             sams_loaded = load_pulses(
                 temp_path, offset=0, limit=1_000_000, variant=TraceVariant.sample
             )
-            _assert_raster_results_are_equal(refs_existing + ref_variants, refs_loaded)
-            _assert_raster_results_are_equal(sams_existing + sam_variants, sams_loaded)
+            _assert_measurements_are_equal(refs_existing + ref_variants, refs_loaded)
+            _assert_measurements_are_equal(sams_existing + sam_variants, sams_loaded)
 
 
 def test_create_db_and_unlink_file(db_path: Path) -> None:
@@ -172,7 +172,7 @@ def test_create_db_and_unlink_file(db_path: Path) -> None:
         load_metadata(db_path)
 
 
-def _assert_raster_results_are_equal(
+def _assert_measurements_are_equal(
     results1: list[Measurement], results2: list[Measurement]
 ) -> None:
     """Assert that two lists of Measurements are equal in content."""
@@ -181,14 +181,11 @@ def _assert_raster_results_are_equal(
     for res1 in results1:
         res2 = results2_by_uuid.get(res1.pulse.uuid)
         assert res2 is not None
-        assert res1.pulse.timestamp == res2.pulse.timestamp
-        assert res1.pulse.time == pytest.approx(res2.pulse.time)
-        assert res1.pulse.signal == pytest.approx(res2.pulse.signal)
         assert res1.point == res2.point
         assert res1.reference == res2.reference
         assert res1.variant == res2.variant
         assert res1.pass_number == res2.pass_number
-
+        _assert_base_traces_are_equal(res1.pulse, res2.pulse)
         _assert_annotations_are_equal(res1, res2)
         _assert_derived_from_are_equal(res1, res2)
 
@@ -201,7 +198,7 @@ def _assert_derived_from_are_equal(res1: Measurement, res2: Measurement) -> None
         assert res2.pulse.derived_from is not None
         assert len(res1.pulse.derived_from) == len(res2.pulse.derived_from)
         for comp1, comp2 in zip(
-            res1.pulse.derived_from, res2.pulse.derived_from, strict=False
+            res1.pulse.derived_from, res2.pulse.derived_from, strict=True
         ):
             _assert_pulse_compositions_are_equal(comp1, comp2)
 
@@ -212,15 +209,16 @@ def _assert_pulse_compositions_are_equal(
     """Assert that two PulseComposition instances are equal in content."""
     assert comp1.position == comp2.position
     assert comp1.shift == pytest.approx(comp2.shift)
-    _assert_base_measurements_are_equal(comp1.pulse, comp2.pulse)
+    _assert_base_traces_are_equal(comp1.pulse, comp2.pulse)
 
 
-def _assert_base_measurements_are_equal(meas1: BaseTrace, meas2: BaseTrace) -> None:
+def _assert_base_traces_are_equal(meas1: BaseTrace, meas2: BaseTrace) -> None:
     """Assert that two BaseTrace instances are equal in content."""
     assert meas1.uuid == meas2.uuid
     assert meas1.timestamp == meas2.timestamp
     assert meas1.time == pytest.approx(meas2.time)
     assert meas1.signal == pytest.approx(meas2.signal)
+    assert meas1.noise == meas2.noise
 
 
 def _assert_annotations_are_equal(res1: Measurement, res2: Measurement) -> None:
