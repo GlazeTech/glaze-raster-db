@@ -13,7 +13,7 @@ from sqlmodel import Field, SQLModel
 GRDB_METADATA = MetaData()
 
 # Current schema version - increment when making breaking changes
-CURRENT_SCHEMA_VERSION = 4  # v0.1.0 = 1, v0.2.0 = 2, v0.3.0 = 3
+CURRENT_SCHEMA_VERSION = 4
 Axis = Literal["x", "y", "z"]
 Sign = Literal[1, -1]
 
