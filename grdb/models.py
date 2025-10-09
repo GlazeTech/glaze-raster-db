@@ -323,6 +323,7 @@ class PulseDB(GRDBBase, table=True):
             reference=None,
             variant=TraceVariant.other,
             annotations=json.dumps([]),
+            pass_number=None,
         )
 
     def to_measurement(
