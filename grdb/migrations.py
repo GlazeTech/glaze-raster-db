@@ -56,6 +56,7 @@ def _migrate_to_v4(engine: Engine) -> None:
     create_tables(engine)
     statements = [
         f"ALTER TABLE {PulseDB.__tablename__} ADD COLUMN pass_number INTEGER",
+        f"ALTER TABLE {PulseDB.__tablename__} ADD COLUMN noise TEXT",
         f"ALTER TABLE {RasterInfoDB.__tablename__} ADD COLUMN repetitions_config TEXT",
     ]
     _execute_text(engine, statements)

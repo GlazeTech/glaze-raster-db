@@ -92,9 +92,13 @@ def make_dummy_measurement(
     ]
 
 
-def make_dummy_trace(pulse_length: int = 2, composed_of_n: int = 0) -> Trace:
+def make_dummy_trace(
+    pulse_length: int = 2, composed_of_n: int = 0, noise: uuid.UUID | None = None
+) -> Trace:
     composition = (
-        make_dummy_composition(composed_of_n=composed_of_n, pulse_length=pulse_length)
+        make_dummy_composition(
+            composed_of_n=composed_of_n, pulse_length=pulse_length, noise=noise
+        )
         if composed_of_n > 0
         else None
     )
@@ -102,17 +106,18 @@ def make_dummy_trace(pulse_length: int = 2, composed_of_n: int = 0) -> Trace:
         time=[1.0 * i for i in range(pulse_length)],
         signal=[random.random() for _ in range(pulse_length)],  # noqa: S311
         uuid=uuid.uuid4(),
+        noise=None if composition else noise,
         timestamp=int(time.time() * 1000),  # Time in ms since Unix epoch
         derived_from=composition,
     )
 
 
 def make_dummy_composition(
-    composed_of_n: int = 2, pulse_length: int = 2
+    composed_of_n: int = 2, pulse_length: int = 2, noise: uuid.UUID | None = None
 ) -> list[PulseComposition]:
     return [
         PulseComposition(
-            pulse=make_dummy_basetrace(pulse_length=pulse_length),
+            pulse=make_dummy_basetrace(pulse_length=pulse_length, noise=noise),
             position=i,
             shift=i * 10e-12,
         )
@@ -120,12 +125,15 @@ def make_dummy_composition(
     ]
 
 
-def make_dummy_basetrace(pulse_length: int = 2) -> BaseTrace:
+def make_dummy_basetrace(
+    pulse_length: int = 2, noise: uuid.UUID | None = None
+) -> BaseTrace:
     return BaseTrace(
         time=[1.0 * i for i in range(pulse_length)],
         signal=[random.random() for _ in range(pulse_length)],  # noqa: S311
         uuid=uuid.uuid4(),
         timestamp=int(time.time() * 1000),  # Time in ms since Unix epoch
+        noise=noise,
     )
 
 
@@ -149,13 +157,14 @@ def make_measurement_variants() -> list[Measurement]:
         composed_of_n: int | None = 0,
         reference_uuid: uuid.UUID | None = None,
         pass_number: int | None = None,
+        noise: uuid.UUID | None = None,
     ) -> Measurement:
         point = point or Point3D(x=None, y=None, z=None)
         variant = variant or TraceVariant.sample
         composed_of_n = composed_of_n or 0
 
         return Measurement(
-            pulse=make_dummy_trace(composed_of_n=composed_of_n),
+            pulse=make_dummy_trace(composed_of_n=composed_of_n, noise=noise),
             point=point,
             reference=reference_uuid,
             variant=variant,
@@ -171,9 +180,13 @@ def make_measurement_variants() -> list[Measurement]:
             built.append(ref)
         else:
             ref_uuid = None
+        noise = build(variant=TraceVariant.noise)
+        noise_uuid = noise.pulse.uuid
         built.extend(
             [
+                noise,
                 build(composed_of_n=2, reference_uuid=ref_uuid),
+                build(composed_of_n=2, reference_uuid=ref_uuid, noise=noise_uuid),
                 build(point=Point3D(x=1.0, y=2.0, z=3.0), reference_uuid=ref_uuid),
                 build(point=Point3D(x=4.0, y=None, z=6.0), reference_uuid=ref_uuid),
                 build(variant=TraceVariant.reference, reference_uuid=ref_uuid),
@@ -192,6 +205,7 @@ def make_measurement_variants() -> list[Measurement]:
                 build(pass_number=None),
                 build(pass_number=1),
                 build(pass_number=2),
+                build(noise=noise_uuid),  # Sample with noise trace
             ]
         )
         return built

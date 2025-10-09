@@ -133,6 +133,7 @@ class BaseTrace(BaseModel):
     signal: list[float]
     uuid: UUID
     timestamp: int
+    noise: UUID | None
 
 
 class PulseComposition(BaseModel):
@@ -283,6 +284,7 @@ class PulseDB(GRDBBase, table=True):
     z: float | None
     reference: UUID | None
     variant: TraceVariant
+    noise: UUID | None
     pass_number: int | None
     annotations: str | None = Field(
         default_factory=lambda: json.dumps([])
@@ -306,6 +308,7 @@ class PulseDB(GRDBBase, table=True):
             annotations=json.dumps(
                 [a.model_dump() for a in (result.annotations or [])]
             ),
+            noise=result.pulse.noise,
         )
 
     @classmethod
@@ -317,6 +320,7 @@ class PulseDB(GRDBBase, table=True):
             signal=signal_bytes,
             timestamp=measurement.timestamp,
             uuid=measurement.uuid,
+            noise=measurement.noise,
             x=None,
             y=None,
             z=None,
@@ -333,6 +337,7 @@ class PulseDB(GRDBBase, table=True):
             pulse=Trace(
                 uuid=self.uuid,
                 timestamp=self.timestamp,
+                noise=self.noise,
                 time=self.unpack_floats(self.time),
                 signal=self.unpack_floats(self.signal),
                 derived_from=stitching,
@@ -344,6 +349,15 @@ class PulseDB(GRDBBase, table=True):
             annotations=[
                 KVPair.model_validate(a) for a in json.loads(self.annotations or "[]")
             ],
+        )
+
+    def to_basetrace(self: PulseDB) -> BaseTrace:
+        return BaseTrace(
+            uuid=self.uuid,
+            timestamp=self.timestamp,
+            noise=self.noise,
+            time=self.unpack_floats(self.time),
+            signal=self.unpack_floats(self.signal),
         )
 
     @staticmethod

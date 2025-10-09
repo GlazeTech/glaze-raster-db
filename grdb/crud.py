@@ -291,15 +291,7 @@ def _get_source_measurements(
 
     stmt = select(PulseDB).where(PulseDB.uuid.in_(list(source_ids)))  # type: ignore[attr-defined]
     src_pulses = session.exec(stmt).all()
-    return {
-        sp.uuid: BaseTrace(
-            uuid=sp.uuid,
-            timestamp=sp.timestamp,
-            time=PulseDB.unpack_floats(sp.time),
-            signal=PulseDB.unpack_floats(sp.signal),
-        )
-        for sp in src_pulses
-    }
+    return {sp.uuid: sp.to_basetrace() for sp in src_pulses}
 
 
 def _build_stitching_info(
