@@ -49,13 +49,14 @@ def _migrate_to_v4(engine: Engine) -> None:
     """Migrate from version 3 to version 4.
 
     - Add `pass_number` column to `pulses`
+    - Add `repetitions_config` column to `raster_info`
     - Initialize values to NULL
     """
     # Ensure tables exist
     create_tables(engine)
     statements = [
         f"ALTER TABLE {PulseDB.__tablename__} ADD COLUMN pass_number INTEGER",
-        f"ALTER TABLE {RasterInfoDB.__tablename__} ADD COLUMN passes_config TEXT",
+        f"ALTER TABLE {RasterInfoDB.__tablename__} ADD COLUMN repetitions_config TEXT",
     ]
     _execute_text(engine, statements)
 

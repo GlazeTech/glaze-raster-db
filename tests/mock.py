@@ -14,7 +14,7 @@ from grdb.models import (
     DeviceMetadata,
     KVPair,
     Measurement,
-    PassesConfig,
+    RepetitionsConfig,
     Point3D,
     Point3DFullyDefined,
     PulseComposition,
@@ -40,6 +40,7 @@ def make_dummy_metadata() -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]
         stepsize=0.5,
         reference_point=Point3D(x=0, y=0, z=0),
         acquire_ref_every=2,
+        repetitions_config=RepetitionsConfig(passes=3, interval_millisecs=30_000),
     )
     device = DeviceMetadata(
         device_serial_number="123-ABC",
@@ -51,7 +52,6 @@ def make_dummy_metadata() -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]
         annotations=[KVPair(key="foo", value="bar"), KVPair(key="baz", value=1.0)],
         device_configuration={"mode": "test"},
         user_coordinates=make_dummy_coordinate_transform(),
-        passes_config=PassesConfig(passes=3, interval_millisecs=30_000),
     )
     return (config, device, meta)
 

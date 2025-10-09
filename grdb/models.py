@@ -64,6 +64,7 @@ class RasterConfig(BaseModel):
     stepsize: float
     reference_point: Point3D | None
     acquire_ref_every: int | None
+    repetitions_config: RepetitionsConfig | None = None
 
 
 class KVPair(BaseModel):
@@ -102,12 +103,12 @@ class CoordinateTransform(BaseModel):
     notes: str | None = None  # optional free text
 
 
-class PassesConfig(BaseModel):
+class RepetitionsConfig(BaseModel):
     passes: int
     interval_millisecs: float  # in milliseconds
 
     @model_validator(mode="after")
-    def validate_passes_config(self) -> PassesConfig:
+    def validate_passes_config(self) -> RepetitionsConfig:
         """Ensure passes and interval are positive."""
         if self.passes <= 0:
             msg = "Passes must be positive"
@@ -125,7 +126,6 @@ class RasterMetadata(BaseModel):
     annotations: list[KVPair]
     device_configuration: dict[str, Any]
     user_coordinates: CoordinateTransform | None = None
-    passes_config: PassesConfig | None = None
 
 
 class BaseTrace(BaseModel):
@@ -187,8 +187,8 @@ class RasterInfoDB(GRDBBase, table=True):
     reference_point: str | None = None  # JSON string
     acquire_ref_every: int | None = None
 
-    # Passes configuration (added in v0.4.0)
-    passes_config: str | None = None  # JSON string of PassesConfig
+    # Repetitions configuration (added in v0.4.0)
+    repetitions_config: str | None = None  # JSON string of RepetitionsConfig
 
     # Coordinate system transformation (added in v0.2.0)
     user_coordinates: str | None = None  # JSON string of CoordinateTransform
@@ -221,9 +221,9 @@ class RasterInfoDB(GRDBBase, table=True):
                 if meta.user_coordinates
                 else None
             ),
-            passes_config=(
-                json.dumps(meta.passes_config.model_dump())
-                if meta.passes_config
+            repetitions_config=(
+                json.dumps(config.repetitions_config.model_dump())
+                if config.repetitions_config
                 else None
             ),
         )
@@ -240,6 +240,11 @@ class RasterInfoDB(GRDBBase, table=True):
                 else None
             ),
             acquire_ref_every=self.acquire_ref_every,
+            repetitions_config=(
+                RepetitionsConfig.model_validate(json.loads(self.repetitions_config))
+                if self.repetitions_config
+                else None
+            ),
         )
 
     def to_device_metadata(self: RasterInfoDB) -> DeviceMetadata:
@@ -258,11 +263,6 @@ class RasterInfoDB(GRDBBase, table=True):
             ],
             device_configuration=json.loads(self.device_configuration),
             user_coordinates=self.to_coordinate_transform(),
-            passes_config=(
-                PassesConfig.model_validate(json.loads(self.passes_config))
-                if self.passes_config
-                else None
-            ),
         )
 
     def to_coordinate_transform(self: RasterInfoDB) -> CoordinateTransform | None:
