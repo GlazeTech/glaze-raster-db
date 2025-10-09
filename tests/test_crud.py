@@ -48,16 +48,11 @@ def test_crud_create_and_load(db_path: Path) -> None:
         n_ref,
         n_samp,
     ) = load_metadata(db_path)
+    meta.raster_id = loaded_meta.raster_id  # IDs are generated on creation
 
     assert loaded_config == config
     assert loaded_device == device
-
-    assert loaded_meta.annotations == meta.annotations
-    assert loaded_meta.app_version == meta.app_version
-    assert loaded_meta.timestamp == meta.timestamp
-    assert loaded_meta.device_configuration == meta.device_configuration
-    assert loaded_meta.user_coordinates == meta.user_coordinates
-
+    assert loaded_meta == meta
     assert n_ref == len(refs)
     assert n_samp == 0
 

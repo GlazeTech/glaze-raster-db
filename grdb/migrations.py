@@ -13,18 +13,12 @@ def _migrate_to_v2(engine: Engine) -> None:
     create_tables(engine)
 
     # Add user_coordinates column to raster_info table
-    with engine.connect() as connection:
-        connection.execute(
-            text(
-                f"ALTER TABLE {RasterInfoDB.__tablename__} ADD COLUMN user_coordinates TEXT"
-            )
-        )
+    statements = [
+        f"ALTER TABLE {RasterInfoDB.__tablename__} ADD COLUMN user_coordinates TEXT"
+    ]
+    _execute_text(engine, statements)
 
-    with Session(engine) as session:
-        # Create version record for version 2
-        schema_version = SchemaVersion(version=2)
-        session.add(schema_version)
-        session.commit()
+    _update_schema_version(engine, 2)
 
 
 def _migrate_to_v3(engine: Engine) -> None:
@@ -37,40 +31,16 @@ def _migrate_to_v3(engine: Engine) -> None:
     """
     # Ensure tables exist
     create_tables(engine)
+    statements = [
+        f"ALTER TABLE {PulseDB.__tablename__} ADD COLUMN variant TEXT",
+        f"ALTER TABLE {PulseDB.__tablename__} ADD COLUMN annotations TEXT",
+        f"UPDATE {PulseDB.__tablename__} SET variant = 'reference' WHERE is_reference = 1",  # noqa: S608
+        f"UPDATE {PulseDB.__tablename__} SET variant = 'sample' WHERE is_reference = 0",  # noqa: S608
+        f"ALTER TABLE {PulseDB.__tablename__} DROP COLUMN is_reference",
+        f"UPDATE {PulseDB.__tablename__} SET annotations = '[]' WHERE annotations IS NULL",  # noqa: S608
+    ]
+    _execute_text(engine, statements)
 
-    with engine.connect() as connection:
-        # Add variant column as TEXT (SQLite is lenient; ORM maps Enum -> TEXT/Check)
-        connection.execute(
-            text(f"ALTER TABLE {PulseDB.__tablename__} ADD COLUMN variant TEXT")
-        )
-
-        # Add annotations column to store JSON list of KVPair
-        connection.execute(
-            text(f"ALTER TABLE {PulseDB.__tablename__} ADD COLUMN annotations TEXT")
-        )
-
-        # Backfill reference vs sample
-        connection.execute(
-            text(
-                f"UPDATE {PulseDB.__tablename__} SET variant = 'reference' WHERE is_reference = 1"  # noqa: S608
-            )
-        )
-        connection.execute(
-            text(
-                f"UPDATE {PulseDB.__tablename__} SET variant = 'sample' WHERE is_reference = 0"  # noqa: S608
-            )
-        )
-        # Drop is_reference column
-        connection.execute(
-            text(f"ALTER TABLE {PulseDB.__tablename__} DROP COLUMN is_reference")
-        )
-        # Initialize annotations to empty array JSON for existing rows
-        connection.execute(
-            text(
-                f"UPDATE {PulseDB.__tablename__} SET annotations = '[]' WHERE annotations IS NULL"  # noqa: S608
-            )
-        )
-        connection.commit()
     # Update the existing schema version row to version 3
     _update_schema_version(engine, 3)
 
@@ -83,13 +53,11 @@ def _migrate_to_v4(engine: Engine) -> None:
     """
     # Ensure tables exist
     create_tables(engine)
-
-    with engine.connect() as connection:
-        # Add pass_number column as INTEGER (nullable)
-        connection.execute(
-            text(f"ALTER TABLE {PulseDB.__tablename__} ADD COLUMN pass_number INTEGER")
-        )
-        connection.commit()
+    statements = [
+        f"ALTER TABLE {PulseDB.__tablename__} ADD COLUMN pass_number INTEGER",
+        f"ALTER TABLE {RasterInfoDB.__tablename__} ADD COLUMN passes_config TEXT",
+    ]
+    _execute_text(engine, statements)
 
     # Update the existing schema version row to version 4
     _update_schema_version(engine, 4)
@@ -100,8 +68,19 @@ def _update_schema_version(engine: Engine, new_version: int) -> None:
         version_row = session.exec(select(SchemaVersion)).first()
         if version_row is not None:
             version_row.version = new_version
-            session.add(version_row)
-            session.commit()
+        else:
+            # Create a new schema_version row if one doesn't exist
+            version_row = SchemaVersion(version=new_version)
+        session.add(version_row)
+        session.commit()
+
+
+def _execute_text(engine: Engine, statements: list[str]) -> None:
+    """Execute a list of SQL statements and commit them."""
+    with engine.connect() as connection:
+        for stmt in statements:
+            connection.execute(text(stmt))
+        connection.commit()
 
 
 MIGRATION_SCRIPTS: dict[int, Callable[[Engine], None]] = {

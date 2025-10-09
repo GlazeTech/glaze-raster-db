@@ -3,7 +3,9 @@ from __future__ import annotations
 import random
 import time
 import uuid
+from typing import TYPE_CHECKING
 
+from grdb import add_pulses, create_db
 from grdb.models import (
     AxesMapping,
     AxisMap,
@@ -12,6 +14,7 @@ from grdb.models import (
     DeviceMetadata,
     KVPair,
     Measurement,
+    PassesConfig,
     Point3D,
     Point3DFullyDefined,
     PulseComposition,
@@ -21,6 +24,9 @@ from grdb.models import (
     Trace,
     TraceVariant,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def make_dummy_metadata() -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]:
@@ -45,6 +51,7 @@ def make_dummy_metadata() -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]
         annotations=[KVPair(key="foo", value="bar"), KVPair(key="baz", value=1.0)],
         device_configuration={"mode": "test"},
         user_coordinates=make_dummy_coordinate_transform(),
+        passes_config=PassesConfig(passes=3, interval_millisecs=30_000),
     )
     return (config, device, meta)
 
@@ -131,9 +138,10 @@ def make_measurement_variants() -> list[Measurement]:
     - Variants: reference, sample, noise, other.
     - Reference field: set vs unset (sample referencing a ref).
     - Stitching: present (derived_from) vs absent.
+    - Pass number: None, 1, 2.
     """
 
-    def build(
+    def build(  # noqa: PLR0913
         *,
         point: Point3D | None = None,
         variant: TraceVariant | None = TraceVariant.sample,
@@ -191,3 +199,12 @@ def make_measurement_variants() -> list[Measurement]:
     return build_with_potential_ref(with_ref=True) + build_with_potential_ref(
         with_ref=False
     )
+
+
+def make_dummy_database(path: Path) -> None:
+    """Create a dummy database at the specified path for testing."""
+    config, device, meta = make_dummy_metadata()
+    measurements = make_measurement_variants()
+
+    create_db(path, config, device, meta)
+    add_pulses(path, measurements)
