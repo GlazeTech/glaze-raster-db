@@ -3,7 +3,9 @@ from __future__ import annotations
 import random
 import time
 import uuid
+from typing import TYPE_CHECKING
 
+from grdb import add_pulses, create_db
 from grdb.models import (
     AxesMapping,
     AxisMap,
@@ -18,9 +20,13 @@ from grdb.models import (
     RasterConfig,
     RasterMetadata,
     RasterPattern,
+    RepetitionsConfig,
     Trace,
     TraceVariant,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def make_dummy_metadata() -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]:
@@ -34,6 +40,7 @@ def make_dummy_metadata() -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]
         stepsize=0.5,
         reference_point=Point3D(x=0, y=0, z=0),
         acquire_ref_every=2,
+        repetitions_config=RepetitionsConfig(passes=3, interval_millisecs=30_000),
     )
     device = DeviceMetadata(
         device_serial_number="123-ABC",
@@ -131,15 +138,17 @@ def make_measurement_variants() -> list[Measurement]:
     - Variants: reference, sample, noise, other.
     - Reference field: set vs unset (sample referencing a ref).
     - Stitching: present (derived_from) vs absent.
+    - Pass number: None, 1, 2.
     """
 
-    def build(
+    def build(  # noqa: PLR0913
         *,
         point: Point3D | None = None,
         variant: TraceVariant | None = TraceVariant.sample,
         annotations: list[KVPair] | None = None,
         composed_of_n: int | None = 0,
         reference_uuid: uuid.UUID | None = None,
+        pass_number: int | None = None,
     ) -> Measurement:
         point = point or Point3D(x=None, y=None, z=None)
         variant = variant or TraceVariant.sample
@@ -151,6 +160,7 @@ def make_measurement_variants() -> list[Measurement]:
             reference=reference_uuid,
             variant=variant,
             annotations=annotations,
+            pass_number=pass_number,
         )
 
     def build_with_potential_ref(*, with_ref: bool = False) -> list[Measurement]:
@@ -179,6 +189,9 @@ def make_measurement_variants() -> list[Measurement]:
                 build(
                     annotations=[KVPair(key="f", value=3.14)], reference_uuid=ref_uuid
                 ),
+                build(pass_number=None),
+                build(pass_number=1),
+                build(pass_number=2),
             ]
         )
         return built
@@ -186,3 +199,12 @@ def make_measurement_variants() -> list[Measurement]:
     return build_with_potential_ref(with_ref=True) + build_with_potential_ref(
         with_ref=False
     )
+
+
+def make_dummy_database(path: Path) -> None:
+    """Create a dummy database at the specified path for testing."""
+    config, device, meta = make_dummy_metadata()
+    measurements = make_measurement_variants()
+
+    create_db(path, config, device, meta)
+    add_pulses(path, measurements)

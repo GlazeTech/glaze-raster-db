@@ -13,7 +13,7 @@ from sqlmodel import Field, SQLModel
 GRDB_METADATA = MetaData()
 
 # Current schema version - increment when making breaking changes
-CURRENT_SCHEMA_VERSION = 3  # v0.1.0 = 1, v0.2.0 = 2, v0.3.0 = 3
+CURRENT_SCHEMA_VERSION = 4
 Axis = Literal["x", "y", "z"]
 Sign = Literal[1, -1]
 
@@ -64,6 +64,7 @@ class RasterConfig(BaseModel):
     stepsize: float
     reference_point: Point3D | None
     acquire_ref_every: int | None
+    repetitions_config: RepetitionsConfig | None = None
 
 
 class KVPair(BaseModel):
@@ -100,6 +101,22 @@ class CoordinateTransform(BaseModel):
     mapping: AxesMapping
     last_used: int  # timestamp of last use (milliseconds since UNIX epoch)
     notes: str | None = None  # optional free text
+
+
+class RepetitionsConfig(BaseModel):
+    passes: int
+    interval_millisecs: float  # in milliseconds
+
+    @model_validator(mode="after")
+    def validate_passes_config(self) -> RepetitionsConfig:
+        """Ensure passes and interval are positive."""
+        if self.passes <= 0:
+            msg = "Passes must be positive"
+            raise ValueError(msg)
+        if self.interval_millisecs <= 0:
+            msg = "Interval must be positive"
+            raise ValueError(msg)
+        return self
 
 
 class RasterMetadata(BaseModel):
@@ -145,6 +162,7 @@ class Measurement(BaseModel):
     variant: TraceVariant
     reference: UUID | None = None
     annotations: list[KVPair] | None = None
+    pass_number: int | None = None  # optional pass number for multi-pass rasters
 
 
 class RasterInfoDB(GRDBBase, table=True):
@@ -168,6 +186,9 @@ class RasterInfoDB(GRDBBase, table=True):
     stepsize: float
     reference_point: str | None = None  # JSON string
     acquire_ref_every: int | None = None
+
+    # Repetitions configuration (added in v0.4.0)
+    repetitions_config: str | None = None  # JSON string of RepetitionsConfig
 
     # Coordinate system transformation (added in v0.2.0)
     user_coordinates: str | None = None  # JSON string of CoordinateTransform
@@ -200,6 +221,11 @@ class RasterInfoDB(GRDBBase, table=True):
                 if meta.user_coordinates
                 else None
             ),
+            repetitions_config=(
+                json.dumps(config.repetitions_config.model_dump())
+                if config.repetitions_config
+                else None
+            ),
         )
 
     def to_raster_config(self: RasterInfoDB) -> RasterConfig:
@@ -214,6 +240,11 @@ class RasterInfoDB(GRDBBase, table=True):
                 else None
             ),
             acquire_ref_every=self.acquire_ref_every,
+            repetitions_config=(
+                RepetitionsConfig.model_validate(json.loads(self.repetitions_config))
+                if self.repetitions_config
+                else None
+            ),
         )
 
     def to_device_metadata(self: RasterInfoDB) -> DeviceMetadata:
@@ -252,6 +283,7 @@ class PulseDB(GRDBBase, table=True):
     z: float | None
     reference: UUID | None
     variant: TraceVariant
+    pass_number: int | None
     annotations: str | None = Field(
         default_factory=lambda: json.dumps([])
     )  # JSON string of list[KVPair]
@@ -270,6 +302,7 @@ class PulseDB(GRDBBase, table=True):
             z=result.point.z,
             reference=result.reference,
             variant=result.variant,
+            pass_number=result.pass_number,
             annotations=json.dumps(
                 [a.model_dump() for a in (result.annotations or [])]
             ),
@@ -290,6 +323,7 @@ class PulseDB(GRDBBase, table=True):
             reference=None,
             variant=TraceVariant.other,
             annotations=json.dumps([]),
+            pass_number=None,
         )
 
     def to_measurement(
@@ -306,6 +340,7 @@ class PulseDB(GRDBBase, table=True):
             point=Point3D(x=self.x, y=self.y, z=self.z),
             reference=self.reference,
             variant=self.variant,
+            pass_number=self.pass_number,
             annotations=[
                 KVPair.model_validate(a) for a in json.loads(self.annotations or "[]")
             ],
