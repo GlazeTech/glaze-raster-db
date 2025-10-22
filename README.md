@@ -53,6 +53,23 @@ db_path = Path("raster.grf")
 all_pulses = load_pulses(db_path, offset=0, limit=1000, variant=None)
 ```
 
+### Loading Metadata
+
+```python
+from pathlib import Path
+from grdb import load_metadata
+
+db_path = Path("raster.grf")
+
+raster_config, device_metadata, raster_metadata, n_refs, n_samples = load_metadata(db_path)
+```
+
+- `raster_config`: Acquisition settings such as raster `patterns`, scan `stepsize`, optional `reference_point`, how often to `acquire_ref_every`, and any multi-pass `repetitions_config`.
+- `device_metadata`: Instrument identifiers including the serial number and firmware version captured at acquisition time.
+- `raster_metadata`: Session-level context like the GRDB app version, optional `raster_id`, acquisition `timestamp`, user-supplied `annotations`, raw `device_configuration`, and any saved coordinate transform in `user_coordinates`.
+- `user_coordinates` (within `raster_metadata`): A `CoordinateTransform` that captures how user coordinates map to machine space, including the UUID and `name` of the transform, the XYZ `offset` applied, the axis/sign remapping in `mapping`, the `last_used` timestamp, and optional operator `notes`.
+- `n_refs` and `n_samples`: Counts of final reference and sample pulses stored in the database (stitched sources are excluded so the numbers reflect the user-facing traces).
+
 ### Understanding the Measurement Data Structure
 
 The `load_pulses` function returns a list of `Measurement` objects. Each `Measurement` represents a single pulse measurement with its associated metadata and spatial information.
