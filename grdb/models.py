@@ -7,13 +7,13 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, model_validator
-from sqlalchemy import MetaData, UniqueConstraint
+from sqlalchemy import CheckConstraint, MetaData, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 GRDB_METADATA = MetaData()
 
 # Current schema version - increment when making breaking changes
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 Axis = Literal["x", "y", "z"]
 Sign = Literal[1, -1]
 
@@ -23,6 +23,11 @@ class TraceVariant(str, Enum):
     sample = "sample"
     noise = "noise"
     other = "other"
+
+
+class PulseCompositionType(str, Enum):
+    stitch = "stitch"
+    average = "average"
 
 
 class GRDBBase(SQLModel, metadata=GRDB_METADATA):
@@ -155,6 +160,27 @@ class Trace(BaseTrace):
     """
 
     derived_from: list[PulseComposition] | None = None
+    averaged_from: list[Trace] | None = None
+
+    @model_validator(mode="after")
+    def validate_lineage(self: Trace) -> Trace:
+        """Ensure only one lineage style is present and averages have >= 2 sources."""
+        if self.derived_from and self.averaged_from:
+            msg = "Trace cannot have both derived_from and averaged_from"
+            raise ValueError(msg)
+        if self.averaged_from is not None and len(self.averaged_from) < 2:  # noqa: PLR2004
+            msg = "averaged_from requires at least two source traces"
+            raise ValueError(msg)
+        if self.derived_from is not None and len(self.derived_from) < 2:  # noqa: PLR2004
+            msg = "derived_from requires at least two source pulse"
+            raise ValueError(msg)
+        # Disallow nested averaging - averaged sources cannot be averaged
+        if self.averaged_from:
+            for source in self.averaged_from:
+                if source.averaged_from is not None:
+                    msg = "Nested averaging not allowed: averaged sources cannot themselves be averaged"
+                    raise ValueError(msg)
+        return self
 
 
 class Measurement(BaseModel):
@@ -331,7 +357,9 @@ class PulseDB(GRDBBase, table=True):
         )
 
     def to_measurement(
-        self: PulseDB, stitching: list[PulseComposition] | None
+        self: PulseDB,
+        stitching: list[PulseComposition] | None,
+        averaged_from: list[Trace] | None,
     ) -> Measurement:
         return Measurement(
             pulse=Trace(
@@ -341,6 +369,7 @@ class PulseDB(GRDBBase, table=True):
                 time=self.unpack_floats(self.time),
                 signal=self.unpack_floats(self.signal),
                 derived_from=stitching,
+                averaged_from=averaged_from,
             ),
             point=Point3D(x=self.x, y=self.y, z=self.z),
             reference=self.reference,
@@ -392,18 +421,27 @@ class PulseDB(GRDBBase, table=True):
 class PulseCompositionTable(GRDBBase, table=True):
     """Associates a derived pulse with its source pulses.
 
-    A "final" (stitched) pulse is represented as a normal PulseDB. Its composition is captured here by linking the
-    derived pulse UUID to one or more source pulse UUIDs in a defined order.
+    A "final" (stitched or averaged) pulse is represented as a normal PulseDB. Its composition is captured here by
+    linking the derived pulse UUID to one or more source pulse UUIDs.
     """
 
     __tablename__ = "pulse_composition"
     __table_args__ = (
         UniqueConstraint("final_uuid", "position"),
         UniqueConstraint("final_uuid", "source_uuid"),
+        CheckConstraint(
+            "("
+            "composition_type = 'stitch' AND position IS NOT NULL AND shift IS NOT NULL"
+            ") OR ("
+            "composition_type = 'average' AND position IS NULL AND shift IS NULL"
+            ")",
+            name="ck_pulse_composition_type_fields",
+        ),
     )
 
     id: int | None = Field(default=None, primary_key=True)
     final_uuid: UUID = Field(foreign_key="pulses.uuid", index=True)
     source_uuid: UUID = Field(foreign_key="pulses.uuid", index=True)
-    position: int
-    shift: float
+    position: int | None
+    shift: float | None
+    composition_type: PulseCompositionType

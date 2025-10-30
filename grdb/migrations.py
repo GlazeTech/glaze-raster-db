@@ -1,10 +1,17 @@
 from collections.abc import Callable
+from uuid import UUID
 
 from sqlalchemy import Engine, text
 from sqlmodel import Session, select
 
 from grdb.core import create_tables
-from grdb.models import PulseDB, RasterInfoDB, SchemaVersion
+from grdb.models import (
+    PulseCompositionTable,
+    PulseCompositionType,
+    PulseDB,
+    RasterInfoDB,
+    SchemaVersion,
+)
 
 
 def _migrate_to_v2(engine: Engine) -> None:
@@ -65,6 +72,57 @@ def _migrate_to_v4(engine: Engine) -> None:
     _update_schema_version(engine, 4)
 
 
+def _migrate_to_v5(engine: Engine) -> None:
+    """Migrate from version 4 to version 5.
+
+    - Add `composition_type` column to `pulse_composition`
+    - Change `position` and `shift` columns to nullable (int -> int | None, float -> float | None)
+    - Backfill all existing rows as 'stitch' (averaging is new feature)
+
+    We must copy data to a new table due to limitations in SQLite ALTER TABLE.
+    """
+    # Drop old indexes (they don't get renamed with the table in SQLite)
+    old_table_name = f"{PulseCompositionTable.__tablename__}_old"
+    statements = [
+        f"DROP INDEX IF EXISTS ix_{PulseCompositionTable.__tablename__}_final_uuid",
+        f"DROP INDEX IF EXISTS ix_{PulseCompositionTable.__tablename__}_source_uuid",
+        f"ALTER TABLE {PulseCompositionTable.__tablename__} RENAME TO {old_table_name}",
+    ]
+    _execute_text(engine, statements)
+
+    # Create new table with updated schema using SQLModel
+    create_tables(engine)
+
+    # Copy data from old table to new, setting composition_type to 'stitch'
+    with Session(engine) as session:
+        old_rows = session.exec(  # type: ignore[call-overload]
+            text(
+                f"SELECT id, final_uuid, source_uuid, position, shift FROM {old_table_name}"  # noqa: S608
+            )
+        ).all()
+
+        for row in old_rows:
+            new_row = PulseCompositionTable(
+                id=row.id,
+                final_uuid=UUID(row.final_uuid)
+                if isinstance(row.final_uuid, str)
+                else row.final_uuid,
+                source_uuid=UUID(row.source_uuid)
+                if isinstance(row.source_uuid, str)
+                else row.source_uuid,
+                position=row.position,
+                shift=row.shift,
+                composition_type=PulseCompositionType.stitch,
+            )
+            session.add(new_row)
+        session.commit()
+
+    # Drop old table
+    _execute_text(engine, [f"DROP TABLE {old_table_name}"])
+
+    _update_schema_version(engine, 5)
+
+
 def _update_schema_version(engine: Engine, new_version: int) -> None:
     with Session(engine) as session:
         version_row = session.exec(select(SchemaVersion)).first()
@@ -89,4 +147,5 @@ MIGRATION_SCRIPTS: dict[int, Callable[[Engine], None]] = {
     1: _migrate_to_v2,
     2: _migrate_to_v3,
     3: _migrate_to_v4,
+    4: _migrate_to_v5,
 }

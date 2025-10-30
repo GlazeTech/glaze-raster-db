@@ -3,20 +3,26 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from sqlalchemy import create_engine, delete
+from sqlmodel import Session
 
-from grdb.crud import (
+from grdb import (
     add_pulses,
     create_db,
     load_metadata,
     load_pulses,
     update_annotations,
 )
+from grdb.core import create_tables
 from grdb.models import (
     BaseTrace,
     KVPair,
     Measurement,
     PulseComposition,
     PulseDB,
+    RasterInfoDB,
+    SchemaVersion,
+    Trace,
     TraceVariant,
 )
 from tests.mock import (
@@ -61,7 +67,7 @@ def test_append_and_batch(db_path: Path) -> None:
     config, device, meta = make_dummy_metadata()
     refs = make_dummy_measurement(
         variant=TraceVariant.reference
-    ) + make_dummy_measurement(composed_of_n=1, variant=TraceVariant.reference)
+    ) + make_dummy_measurement(composed_of_n=2, variant=TraceVariant.reference)
     sams = make_dummy_measurement(variant=TraceVariant.sample) + make_dummy_measurement(
         composed_of_n=2, variant=TraceVariant.sample
     )
@@ -172,6 +178,45 @@ def test_create_db_and_unlink_file(db_path: Path) -> None:
         load_metadata(db_path)
 
 
+def test_load_metadata_empty_db(db_path: Path) -> None:
+    """Test that load_metadata raises ValueError on a database with no metadata."""
+    # Create a proper database with schema
+    engine = create_engine(f"sqlite:///{db_path}")
+    create_tables(engine)
+
+    # Add schema version but delete all metadata rows
+    with Session(engine) as session:
+        session.add(SchemaVersion())
+        session.commit()
+        # Delete all metadata rows
+        session.exec(delete(RasterInfoDB))
+        session.commit()
+
+    # Try to load metadata from database with no metadata
+    with pytest.raises(ValueError, match="No metadata found in DB"):
+        load_metadata(db_path)
+
+
+def test_update_annotations_empty_db(db_path: Path) -> None:
+    """Test that update_annotations raises ValueError on a database with no metadata."""
+    # Create a proper database with schema
+    engine = create_engine(f"sqlite:///{db_path}")
+    create_tables(engine)
+
+    # Add schema version but delete all metadata rows
+    with Session(engine) as session:
+        session.add(SchemaVersion())
+        session.commit()
+        # Delete all metadata rows
+        session.exec(delete(RasterInfoDB))
+        session.commit()
+
+    # Try to update annotations on database with no metadata
+    annotations = [KVPair(key="test", value=123)]
+    with pytest.raises(ValueError, match="No metadata found in DB"):
+        update_annotations(db_path, annotations)
+
+
 def _assert_measurements_are_equal(
     results1: list[Measurement], results2: list[Measurement]
 ) -> None:
@@ -185,22 +230,30 @@ def _assert_measurements_are_equal(
         assert res1.reference == res2.reference
         assert res1.variant == res2.variant
         assert res1.pass_number == res2.pass_number
-        _assert_base_traces_are_equal(res1.pulse, res2.pulse)
+        _assert_traces_are_equal(res1.pulse, res2.pulse)
         _assert_annotations_are_equal(res1, res2)
-        _assert_derived_from_are_equal(res1, res2)
 
 
-def _assert_derived_from_are_equal(res1: Measurement, res2: Measurement) -> None:
-    """Assert that the derived_from compositions of two Measurement instances are equal."""
-    if res1.pulse.derived_from is None:
-        assert res2.pulse.derived_from is None
+def _assert_derived_from_are_equal(res1: Trace, res2: Trace) -> None:
+    """Assert that the derived_from compositions of two Trace instances are equal."""
+    if res1.derived_from is None:
+        assert res2.derived_from is None
     else:
-        assert res2.pulse.derived_from is not None
-        assert len(res1.pulse.derived_from) == len(res2.pulse.derived_from)
-        for comp1, comp2 in zip(
-            res1.pulse.derived_from, res2.pulse.derived_from, strict=True
-        ):
+        assert res2.derived_from is not None
+        assert len(res1.derived_from) == len(res2.derived_from)
+        for comp1, comp2 in zip(res1.derived_from, res2.derived_from, strict=True):
             _assert_pulse_compositions_are_equal(comp1, comp2)
+
+
+def _assert_averaged_from_are_equal(res1: Trace, res2: Trace) -> None:
+    """Assert that the averaged_from sources of two Trace instances are equal."""
+    if res1.averaged_from is None:
+        assert res2.averaged_from is None
+    else:
+        assert res2.averaged_from is not None
+        assert len(res1.averaged_from) == len(res2.averaged_from)
+        for trace1, trace2 in zip(res1.averaged_from, res2.averaged_from, strict=True):
+            _assert_traces_are_equal(trace1, trace2)
 
 
 def _assert_pulse_compositions_are_equal(
@@ -231,3 +284,10 @@ def _assert_annotations_are_equal(res1: Measurement, res2: Measurement) -> None:
         for ann1, ann2 in zip(res1.annotations, res2.annotations, strict=False):
             assert ann1.key == ann2.key
             assert ann1.value == ann2.value
+
+
+def _assert_traces_are_equal(trace1: Trace, trace2: Trace) -> None:
+    """Assert that two Trace instances are equal in content, including compositions."""
+    _assert_base_traces_are_equal(trace1, trace2)
+    _assert_derived_from_are_equal(trace1, trace2)
+    _assert_averaged_from_are_equal(trace1, trace2)
