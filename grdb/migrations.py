@@ -123,6 +123,61 @@ def _migrate_to_v5(engine: Engine) -> None:
     _update_schema_version(engine, 5)
 
 
+def _migrate_to_v6(engine: Engine) -> None:
+    """Migrate from version 5 to version 6.
+
+    - Add `variant` column to `raster_info` (default 'raster' for existing DBs)
+    - Make `app_version`, `patterns`, and `stepsize` nullable in `raster_info`
+
+    We must copy data to a new table due to limitations in SQLite ALTER TABLE.
+    """
+    old_table_name = f"{RasterInfoDB.__tablename__}_old"
+    statements = [
+        f"ALTER TABLE {RasterInfoDB.__tablename__} RENAME TO {old_table_name}",
+    ]
+    _execute_text(engine, statements)
+
+    # Create new table with updated schema using SQLModel
+    create_tables(engine)
+
+    # Copy data from old table to new, setting variant to 'raster'
+    with engine.connect() as connection:
+        old_rows = connection.execute(
+            text(f"SELECT * FROM {old_table_name}")  # noqa: S608
+        ).all()
+
+        for row in old_rows:
+            # Convert row to dict and add variant field
+            row_dict = dict(row._mapping)
+            row_dict["variant"] = "raster"
+
+            # Insert into new table
+            connection.execute(
+                text(
+                    f"""
+                    INSERT INTO {RasterInfoDB.__tablename__} (
+                        id, device_serial_number, device_firmware_version,
+                        variant, app_version, timestamp, annotations, device_configuration,
+                        patterns, stepsize, reference_point, acquire_ref_every,
+                        repetitions_config, user_coordinates
+                    ) VALUES (
+                        :id, :device_serial_number, :device_firmware_version,
+                        :variant, :app_version, :timestamp, :annotations, :device_configuration,
+                        :patterns, :stepsize, :reference_point, :acquire_ref_every,
+                        :repetitions_config, :user_coordinates
+                    )
+                    """  # noqa: S608
+                ),
+                row_dict,
+            )
+        connection.commit()
+
+    # Drop old table
+    _execute_text(engine, [f"DROP TABLE {old_table_name}"])
+
+    _update_schema_version(engine, 6)
+
+
 def _update_schema_version(engine: Engine, new_version: int) -> None:
     with Session(engine) as session:
         version_row = session.exec(select(SchemaVersion)).first()
@@ -148,4 +203,5 @@ MIGRATION_SCRIPTS: dict[int, Callable[[Engine], None]] = {
     2: _migrate_to_v3,
     3: _migrate_to_v4,
     4: _migrate_to_v5,
+    5: _migrate_to_v6,
 }

@@ -37,9 +37,9 @@ if TYPE_CHECKING:
 
 def create_db(
     path: Path,
-    raster_config: RasterConfig,
     device_metadata: DeviceMetadata,
     raster_metadata: RasterMetadata,
+    raster_config: RasterConfig | None = None,
 ) -> None:
     """Create a new raster DB file and save metadata.
 
@@ -49,16 +49,18 @@ def create_db(
 
     Args:
         path: Destination SQLite file path.
-        raster_config: Acquisition configuration.
         device_metadata: Device information.
-        raster_metadata: Session metadata.
+        raster_metadata: Session metadata (includes variant field).
+        raster_config: Acquisition configuration (required for raster variant).
     """
     engine = create_engine(f"sqlite:///{path}", echo=False, poolclass=NullPool)
     create_tables(engine)
 
     with Session(engine) as session:
         raster_info = RasterInfoDB.from_api(
-            raster_config, raster_metadata, device_metadata
+            raster_metadata,
+            device_metadata,
+            raster_config,
         )
 
         session.add(SchemaVersion())
@@ -89,10 +91,11 @@ def add_pulses(
 
 def load_metadata(
     path: Path,
-) -> tuple[RasterConfig, DeviceMetadata, RasterMetadata, int, int]:
+) -> tuple[RasterConfig | None, DeviceMetadata, RasterMetadata, int, int]:
     """Load configuration, device, and session metadata from the DB.
 
     Returns the metadata along with counts of reference and sample pulses.
+    raster_config will be None for collection-type datasets.
 
     Args:
         path: SQLite DB file path.

@@ -16,11 +16,14 @@ from grdb import (
 from grdb.core import create_tables
 from grdb.models import (
     BaseTrace,
+    DatasetVariant,
+    DeviceMetadata,
     KVPair,
     Measurement,
     PulseComposition,
     PulseDB,
     RasterInfoDB,
+    RasterMetadata,
     SchemaVersion,
     Trace,
     TraceVariant,
@@ -43,7 +46,7 @@ def test_crud_create_and_load(db_path: Path) -> None:
     config, device, meta = make_dummy_metadata()
     refs = make_dummy_measurement(variant=TraceVariant.reference)
 
-    create_db(db_path, config, device, meta)
+    create_db(db_path, device, meta, config)
     # Add references after DB creation
     add_pulses(db_path, refs)
 
@@ -71,7 +74,7 @@ def test_append_and_batch(db_path: Path) -> None:
     sams = make_dummy_measurement(variant=TraceVariant.sample) + make_dummy_measurement(
         composed_of_n=2, variant=TraceVariant.sample
     )
-    create_db(db_path, config, device, meta)
+    create_db(db_path, device, meta, config)
 
     # Add references and samples after DB creation
     add_pulses(db_path, sams + refs)
@@ -88,7 +91,7 @@ def test_append_and_batch(db_path: Path) -> None:
 
 def test_update_annotations_and_reload(db_path: Path) -> None:
     config, device, meta = make_dummy_metadata()
-    create_db(db_path, config, device, meta)
+    create_db(db_path, device, meta, config)
     # Update annotations
     new_annotations = [KVPair(key="x", value=1), KVPair(key="y", value=2)]
     update_annotations(db_path, new_annotations)
@@ -106,7 +109,7 @@ def test_measurement_field_variations_roundtrip(db_path: Path) -> None:
     config, device, meta = make_dummy_metadata()
     variants = make_measurement_variants()
 
-    create_db(db_path, config, device, meta)
+    create_db(db_path, device, meta, config)
     add_pulses(db_path, variants)
 
     loaded = load_pulses(db_path, offset=0, limit=1_000_000)
@@ -161,7 +164,7 @@ def test_create_db_and_unlink_file(db_path: Path) -> None:
     # Create database with some data
     config, device, meta = make_dummy_metadata()
     # Create and save the database (no pulses yet)
-    create_db(db_path, config, device, meta)
+    create_db(db_path, device, meta, config)
 
     # Verify the file was created and has content
     assert db_path.exists()
@@ -215,6 +218,106 @@ def test_update_annotations_empty_db(db_path: Path) -> None:
     annotations = [KVPair(key="test", value=123)]
     with pytest.raises(ValueError, match="No metadata found in DB"):
         update_annotations(db_path, annotations)
+
+
+def test_create_collection_db(db_path: Path) -> None:
+    """Test creating a collection-type database without raster_config."""
+
+    device = DeviceMetadata(
+        device_serial_number="TEST-123",
+        device_firmware_version="v2.0.0",
+    )
+    meta = RasterMetadata(
+        variant=DatasetVariant.collection,
+        app_version="test_app",
+        timestamp=1234567890,
+        annotations=[KVPair(key="dataset", value="test_collection")],
+        device_configuration={"mode": "collection"},
+    )
+
+    # Create collection database without raster_config
+    create_db(db_path, device, meta)
+
+    # Load metadata and verify
+    loaded_config, loaded_device, loaded_meta, n_ref, n_samp = load_metadata(db_path)
+
+    assert loaded_config is None  # No raster config for collection variant
+    assert loaded_device == device
+    assert loaded_meta.variant == DatasetVariant.collection
+    assert loaded_meta.app_version == meta.app_version
+    assert n_ref == 0
+    assert n_samp == 0
+
+
+def test_collection_db_with_none_points(db_path: Path) -> None:
+    """Test adding measurements with None points to collection database."""
+
+    device = DeviceMetadata(
+        device_serial_number="TEST-123",
+        device_firmware_version="v2.0.0",
+    )
+    meta = RasterMetadata(
+        variant=DatasetVariant.collection,
+        timestamp=1234567890,
+        annotations=[],
+        device_configuration={},
+    )
+
+    create_db(db_path, device, meta)
+
+    # Create measurements with None points
+    measurements = [
+        Measurement(
+            pulse=make_dummy_measurement(TraceVariant.sample)[0].pulse,
+            point=None,  # No spatial coordinates
+            variant=TraceVariant.sample,
+        )
+        for _ in range(3)
+    ]
+
+    add_pulses(db_path, measurements)
+    loaded = load_pulses(db_path, offset=0, limit=100)
+    _assert_measurements_are_equal(measurements, loaded)
+
+
+def test_raster_variant_requires_config(db_path: Path) -> None:
+    """Test that raster variant requires raster_config."""
+
+    device = DeviceMetadata(
+        device_serial_number="TEST-123",
+        device_firmware_version="v2.0.0",
+    )
+    meta = RasterMetadata(
+        variant=DatasetVariant.raster,  # Raster variant
+        timestamp=1234567890,
+        annotations=[],
+        device_configuration={},
+    )
+
+    # Should raise ValueError because raster variant requires raster_config
+    with pytest.raises(
+        ValueError, match="raster_config is required when variant='raster'"
+    ):
+        create_db(db_path, device, meta)  # No raster_config provided
+
+
+def test_collection_variant_rejects_config(db_path: Path) -> None:
+    """Test that collection variant cannot have raster_config."""
+
+    config, device, _ = make_dummy_metadata()
+
+    meta = RasterMetadata(
+        variant=DatasetVariant.collection,  # Collection variant
+        timestamp=1234567890,
+        annotations=[],
+        device_configuration={},
+    )
+
+    # Should raise ValueError because collection variant cannot have raster_config
+    with pytest.raises(
+        ValueError, match="raster_config should be None when variant is not 'raster'"
+    ):
+        create_db(db_path, device, meta, config)  # Config should not be provided
 
 
 def _assert_measurements_are_equal(

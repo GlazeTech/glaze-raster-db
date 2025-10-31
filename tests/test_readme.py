@@ -32,7 +32,7 @@ class ReadmeDep(DoctestDep):
 
         # Create database with metadata
         config, device, meta = make_dummy_metadata()
-        create_db(db_path, config, device, meta)
+        create_db(db_path, device, meta, config)
 
         # Add sample pulses (enough to satisfy the README examples)
         samples = make_dummy_measurement(variant=TraceVariant.sample)

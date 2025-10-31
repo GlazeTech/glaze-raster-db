@@ -70,7 +70,9 @@ def test_trace_both_derived_and_averaged() -> None:
 
     comp = PulseComposition(pulse=simple_trace, position=0, shift=0.0)
 
-    with pytest.raises(ValueError, match="cannot have both derived_from and averaged_from"):
+    with pytest.raises(
+        ValueError, match="cannot have both derived_from and averaged_from"
+    ):
         Trace(
             time=[1.0, 2.0],
             signal=[0.5, 0.6],
@@ -92,7 +94,9 @@ def test_trace_averaged_from_min_sources() -> None:
         noise=None,
     )
 
-    with pytest.raises(ValueError, match="averaged_from requires at least two source traces"):
+    with pytest.raises(
+        ValueError, match="averaged_from requires at least two source traces"
+    ):
         Trace(
             time=[1.0, 2.0],
             signal=[0.5, 0.6],
@@ -115,7 +119,9 @@ def test_trace_derived_from_min_sources() -> None:
 
     comp = PulseComposition(pulse=simple_trace, position=0, shift=0.0)
 
-    with pytest.raises(ValueError, match="derived_from requires at least two source pulse"):
+    with pytest.raises(
+        ValueError, match="derived_from requires at least two source pulse"
+    ):
         Trace(
             time=[1.0, 2.0],
             signal=[0.5, 0.6],

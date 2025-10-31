@@ -11,6 +11,7 @@ from grdb.models import (
     AxisMap,
     BaseTrace,
     CoordinateTransform,
+    DatasetVariant,
     DeviceMetadata,
     KVPair,
     Measurement,
@@ -47,6 +48,7 @@ def make_dummy_metadata() -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]
         device_firmware_version="v1.0.0",
     )
     meta = RasterMetadata(
+        variant=DatasetVariant.raster,
         app_version="app1",
         timestamp=161803398,
         annotations=[KVPair(key="foo", value="bar"), KVPair(key="baz", value=1.0)],
@@ -188,7 +190,6 @@ def make_measurement_variants() -> list[Measurement]:
         averaged_of_n: int | None = 0,
         averaged_of_n_composed_of_n: int | None = 0,
     ) -> Measurement:
-        point = point or Point3D(x=None, y=None, z=None)
         variant = variant or TraceVariant.sample
         composed_of_n = composed_of_n or 0
         averaged_of_n = averaged_of_n or 0
@@ -262,5 +263,5 @@ def make_dummy_database(path: Path) -> None:
     config, device, meta = make_dummy_metadata()
     measurements = make_measurement_variants()
 
-    create_db(path, config, device, meta)
+    create_db(path, device, meta, config)
     add_pulses(path, measurements)

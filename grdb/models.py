@@ -13,7 +13,7 @@ from sqlmodel import Field, SQLModel
 GRDB_METADATA = MetaData()
 
 # Current schema version - increment when making breaking changes
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 Axis = Literal["x", "y", "z"]
 Sign = Literal[1, -1]
 
@@ -23,6 +23,11 @@ class TraceVariant(str, Enum):
     sample = "sample"
     noise = "noise"
     other = "other"
+
+
+class DatasetVariant(str, Enum):
+    raster = "raster"
+    collection = "collection"
 
 
 class PulseCompositionType(str, Enum):
@@ -125,7 +130,8 @@ class RepetitionsConfig(BaseModel):
 
 
 class RasterMetadata(BaseModel):
-    app_version: str
+    variant: DatasetVariant
+    app_version: str | None = None
     raster_id: UUID | None = None
     timestamp: int
     annotations: list[KVPair]
@@ -185,7 +191,7 @@ class Trace(BaseTrace):
 
 class Measurement(BaseModel):
     pulse: Trace
-    point: Point3D
+    point: Point3D | None = None
     variant: TraceVariant
     reference: UUID | None = None
     annotations: list[KVPair] | None = None
@@ -203,14 +209,15 @@ class RasterInfoDB(GRDBBase, table=True):
     device_firmware_version: str
 
     # RasterMetadata fields
-    app_version: str
+    variant: DatasetVariant  # Added in v0.7.0
+    app_version: str | None = None  # Made optional in v0.7.0
     timestamp: int
     annotations: str  # JSON string of list[KVPair]
     device_configuration: str  # JSON string
 
-    # RasterConfig fields
-    patterns: str  # JSON string
-    stepsize: float
+    # RasterConfig fields (made optional in v0.7.0 for collection variant)
+    patterns: str | None = None  # JSON string
+    stepsize: float | None = None
     reference_point: str | None = None  # JSON string
     acquire_ref_every: int | None = None
 
@@ -223,26 +230,39 @@ class RasterInfoDB(GRDBBase, table=True):
     @classmethod
     def from_api(
         cls: type[RasterInfoDB],
-        config: RasterConfig,
         meta: RasterMetadata,
         device: DeviceMetadata,
+        config: RasterConfig | None = None,
     ) -> RasterInfoDB:
+        # Validate variant-config consistency
+        if meta.variant == DatasetVariant.raster and config is None:
+            msg = "raster_config is required when variant='raster'"
+            raise ValueError(msg)
+        if meta.variant != DatasetVariant.raster and config is not None:
+            msg = "raster_config should be None when variant is not 'raster'"
+            raise ValueError(msg)
+
         return cls(
             id=meta.raster_id,
             device_serial_number=device.device_serial_number,
             device_firmware_version=device.device_firmware_version,
+            variant=meta.variant,
             app_version=meta.app_version,
             timestamp=meta.timestamp,
             annotations=json.dumps([a.model_dump() for a in meta.annotations]),
             device_configuration=json.dumps(meta.device_configuration),
-            patterns=json.dumps([p.model_dump() for p in config.patterns]),
-            stepsize=config.stepsize,
-            reference_point=(
-                json.dumps(config.reference_point.model_dump())
-                if config.reference_point
+            patterns=(
+                json.dumps([p.model_dump() for p in config.patterns])
+                if config
                 else None
             ),
-            acquire_ref_every=config.acquire_ref_every,
+            stepsize=config.stepsize if config else None,
+            reference_point=(
+                json.dumps(config.reference_point.model_dump())
+                if config and config.reference_point
+                else None
+            ),
+            acquire_ref_every=config.acquire_ref_every if config else None,
             user_coordinates=(
                 json.dumps(meta.user_coordinates.model_dump(mode="json"))
                 if meta.user_coordinates
@@ -250,12 +270,14 @@ class RasterInfoDB(GRDBBase, table=True):
             ),
             repetitions_config=(
                 json.dumps(config.repetitions_config.model_dump())
-                if config.repetitions_config
+                if config and config.repetitions_config
                 else None
             ),
         )
 
-    def to_raster_config(self: RasterInfoDB) -> RasterConfig:
+    def to_raster_config(self: RasterInfoDB) -> RasterConfig | None:
+        if self.patterns is None or self.stepsize is None:
+            return None
         return RasterConfig(
             patterns=[
                 RasterPattern.model_validate(p) for p in json.loads(self.patterns)
@@ -282,6 +304,7 @@ class RasterInfoDB(GRDBBase, table=True):
 
     def to_raster_metadata(self: RasterInfoDB) -> RasterMetadata:
         return RasterMetadata(
+            variant=self.variant,
             raster_id=self.id,
             app_version=self.app_version,
             timestamp=self.timestamp,
@@ -325,9 +348,9 @@ class PulseDB(GRDBBase, table=True):
             signal=signal_bytes,
             timestamp=result.pulse.timestamp,
             uuid=result.pulse.uuid,
-            x=result.point.x,
-            y=result.point.y,
-            z=result.point.z,
+            x=result.point.x if result.point else None,
+            y=result.point.y if result.point else None,
+            z=result.point.z if result.point else None,
             reference=result.reference,
             variant=result.variant,
             pass_number=result.pass_number,
@@ -361,6 +384,13 @@ class PulseDB(GRDBBase, table=True):
         stitching: list[PulseComposition] | None,
         averaged_from: list[Trace] | None,
     ) -> Measurement:
+        # Return None if all coordinates are None (collection-type data without spatial info)
+        # Otherwise create Point3D (for backward compatibility with raster data)
+        point = (
+            None
+            if self.x is None and self.y is None and self.z is None
+            else Point3D(x=self.x, y=self.y, z=self.z)
+        )
         return Measurement(
             pulse=Trace(
                 uuid=self.uuid,
@@ -371,7 +401,7 @@ class PulseDB(GRDBBase, table=True):
                 derived_from=stitching,
                 averaged_from=averaged_from,
             ),
-            point=Point3D(x=self.x, y=self.y, z=self.z),
+            point=point,
             reference=self.reference,
             variant=self.variant,
             pass_number=self.pass_number,
