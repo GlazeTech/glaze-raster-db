@@ -166,7 +166,7 @@ class Trace(BaseTrace):
     """
 
     derived_from: list[PulseComposition] | None = None
-    averaged_from: list[Trace] | None = None
+    averaged_from: list["Trace"] | None = None  # noqa: UP037 - the recursive type breaks language servers like PyLance
 
     @model_validator(mode="after")
     def validate_lineage(self: Trace) -> Trace:

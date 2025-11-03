@@ -148,7 +148,7 @@ def _migrate_to_v6(engine: Engine) -> None:
 
         for row in old_rows:
             # Convert row to dict and add variant field
-            row_dict = dict(row._mapping)
+            row_dict = dict(row._mapping)  # noqa: SLF001
             row_dict["variant"] = "raster"
 
             # Insert into new table
