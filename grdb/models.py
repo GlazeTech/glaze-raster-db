@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import struct
+import time
 from enum import Enum
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -187,6 +188,22 @@ class Trace(BaseTrace):
                     msg = "Nested averaging not allowed: averaged sources cannot themselves be averaged"
                     raise ValueError(msg)
         return self
+
+    @classmethod
+    def new(
+        cls: type[Trace],
+        times: list[float],
+        signal: list[float],
+        noise: UUID | None = None,
+    ) -> Trace:
+        """Create a new Trace with a unique UUID and empty data arrays."""
+        return cls(
+            time=times,
+            signal=signal,
+            uuid=uuid4(),
+            timestamp=int(time.time() * 1000),
+            noise=noise,
+        )
 
 
 class Measurement(BaseModel):
