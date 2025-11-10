@@ -214,6 +214,15 @@ class Measurement(BaseModel):
     annotations: list[KVPair] | None = None
     pass_number: int | None = None  # optional pass number for multi-pass rasters
 
+    def get_annotation(self: Measurement, key: str) -> str | int | float | None:
+        """Retrieve the value for a given annotation key, or None if not found."""
+        if self.annotations is None:
+            return None
+        for kv in self.annotations:
+            if kv.key == key:
+                return kv.value
+        return None
+
 
 class RasterInfoDB(GRDBBase, table=True):
     """All metadata, configuration, and device info for a raster session."""
