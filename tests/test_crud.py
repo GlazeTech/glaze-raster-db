@@ -66,9 +66,9 @@ def test_crud_create_and_load(db_path: Path) -> None:
 
 def test_append_and_batch(db_path: Path) -> None:
     config, device, meta = make_dummy_metadata()
-    refs = make_dummy_measurement(
-        variant="reference"
-    ) + make_dummy_measurement(composed_of_n=2, variant="reference")
+    refs = make_dummy_measurement(variant="reference") + make_dummy_measurement(
+        composed_of_n=2, variant="reference"
+    )
     sams = make_dummy_measurement(variant="sample") + make_dummy_measurement(
         composed_of_n=2, variant="sample"
     )
@@ -76,12 +76,8 @@ def test_append_and_batch(db_path: Path) -> None:
 
     # Add references and samples after DB creation
     add_pulses(db_path, sams + refs)
-    refs_loaded = load_pulses(
-        db_path, offset=0, limit=1000, variant="reference"
-    )
-    samples_loaded = load_pulses(
-        db_path, offset=0, limit=1000, variant="sample"
-    )
+    refs_loaded = load_pulses(db_path, offset=0, limit=1000, variant="reference")
+    samples_loaded = load_pulses(db_path, offset=0, limit=1000, variant="sample")
 
     _assert_measurements_are_equal(refs, refs_loaded)
     _assert_measurements_are_equal(sams, samples_loaded)

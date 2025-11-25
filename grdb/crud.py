@@ -116,14 +116,10 @@ def load_metadata(
         # Only count user-facing (final) pulses, excluding any used as sources
         final_filter = ~PulseDB.uuid.in_(select(PulseCompositionTable.source_uuid))  # type: ignore[attr-defined]
         n_reference_pulses = session.exec(
-            select(func.count()).where(
-                final_filter, PulseDB.variant == "reference"
-            )
+            select(func.count()).where(final_filter, PulseDB.variant == "reference")
         ).one()
         n_sample_pulses = session.exec(
-            select(func.count()).where(
-                final_filter, PulseDB.variant == "sample"
-            )
+            select(func.count()).where(final_filter, PulseDB.variant == "sample")
         ).one()
 
         return (
@@ -375,9 +371,7 @@ def _maybe_build_stitching_info(
         return None
 
     # Filter for stitch-type compositions only
-    stitch_rows = [
-        r for r in comp_rows if r.composition_type == "stitch"
-    ]
+    stitch_rows = [r for r in comp_rows if r.composition_type == "stitch"]
     if not stitch_rows:
         return None
 
@@ -409,9 +403,7 @@ def _maybe_build_averaging_info(
         return None
 
     # Filter for average-type compositions only
-    average_rows = [
-        r for r in comp_rows if r.composition_type == "average"
-    ]
+    average_rows = [r for r in comp_rows if r.composition_type == "average"]
     if not average_rows:
         return None
 
