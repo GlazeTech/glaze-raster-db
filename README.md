@@ -84,13 +84,14 @@ A `Measurement` object contains the following fields:
   - `uuid` (UUID): Unique identifier for this pulse
   - `timestamp` (int): Unix timestamp in milliseconds when the pulse was acquired
   - `derived_from` (list[PulseComposition] | None): If this pulse was created by stitching multiple pulses together, this contains information about the source pulses
+  - `averaged_from` (list[Trace] | None): If this pulse was created by averaging multiple pulses, this lists the contributing source traces (which may themselves be stitched)
 
 - **`point`** (`Point3D`): The 3D spatial coordinates where this pulse was measured:
   - `x` (float | None): X coordinate
   - `y` (float | None): Y coordinate  
   - `z` (float | None): Z coordinate
 
-- **`variant`** (`TraceVariant`): The type of measurement, one of:
+- **`variant`** (str): The type of measurement, one of:
   - `"reference"`: Reference measurement taken at a known location
   - `"sample"`: Sample measurement taken on the object being scanned
   - `"noise"`: Noise measurement for baseline correction

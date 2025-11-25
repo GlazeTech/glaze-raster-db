@@ -2,27 +2,25 @@ from __future__ import annotations
 
 import json
 import struct
-from enum import Enum
+import time
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, model_validator
-from sqlalchemy import MetaData, UniqueConstraint
+from sqlalchemy import CheckConstraint, Column, MetaData, String, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 GRDB_METADATA = MetaData()
 
 # Current schema version - increment when making breaking changes
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 6
 Axis = Literal["x", "y", "z"]
 Sign = Literal[1, -1]
 
-
-class TraceVariant(str, Enum):
-    reference = "reference"
-    sample = "sample"
-    noise = "noise"
-    other = "other"
+# String literal types for variants and composition types
+TraceVariant = Literal["reference", "sample", "noise", "other"]
+DatasetVariant = Literal["raster", "collection"]
+PulseCompositionType = Literal["stitch", "average"]
 
 
 class GRDBBase(SQLModel, metadata=GRDB_METADATA):
@@ -120,7 +118,8 @@ class RepetitionsConfig(BaseModel):
 
 
 class RasterMetadata(BaseModel):
-    app_version: str
+    variant: DatasetVariant
+    app_version: str | None = None
     raster_id: UUID | None = None
     timestamp: int
     annotations: list[KVPair]
@@ -155,15 +154,61 @@ class Trace(BaseTrace):
     """
 
     derived_from: list[PulseComposition] | None = None
+    averaged_from: list["Trace"] | None = None  # noqa: UP037 - the recursive type breaks language servers like PyLance
+
+    @model_validator(mode="after")
+    def validate_lineage(self: Trace) -> Trace:
+        """Ensure only one lineage style is present and averages have >= 2 sources."""
+        if self.derived_from and self.averaged_from:
+            msg = "Trace cannot have both derived_from and averaged_from"
+            raise ValueError(msg)
+        if self.averaged_from is not None and len(self.averaged_from) < 2:  # noqa: PLR2004
+            msg = "averaged_from requires at least two source traces"
+            raise ValueError(msg)
+        if self.derived_from is not None and len(self.derived_from) < 2:  # noqa: PLR2004
+            msg = "derived_from requires at least two source pulse"
+            raise ValueError(msg)
+        # Disallow nested averaging - averaged sources cannot be averaged
+        if self.averaged_from:
+            for source in self.averaged_from:
+                if source.averaged_from is not None:
+                    msg = "Nested averaging not allowed: averaged sources cannot themselves be averaged"
+                    raise ValueError(msg)
+        return self
+
+    @classmethod
+    def new(
+        cls: type[Trace],
+        times: list[float],
+        signal: list[float],
+        noise: UUID | None = None,
+    ) -> Trace:
+        """Create a new Trace with a unique UUID and empty data arrays."""
+        return cls(
+            time=times,
+            signal=signal,
+            uuid=uuid4(),
+            timestamp=int(time.time() * 1000),
+            noise=noise,
+        )
 
 
 class Measurement(BaseModel):
     pulse: Trace
-    point: Point3D
+    point: Point3D | None = None
     variant: TraceVariant
     reference: UUID | None = None
     annotations: list[KVPair] | None = None
     pass_number: int | None = None  # optional pass number for multi-pass rasters
+
+    def get_annotation(self: Measurement, key: str) -> str | int | float | None:
+        """Retrieve the value for a given annotation key, or None if not found."""
+        if self.annotations is None:
+            return None
+        for kv in self.annotations:
+            if kv.key == key:
+                return kv.value
+        return None
 
 
 class RasterInfoDB(GRDBBase, table=True):
@@ -177,14 +222,15 @@ class RasterInfoDB(GRDBBase, table=True):
     device_firmware_version: str
 
     # RasterMetadata fields
-    app_version: str
+    variant: DatasetVariant = Field(sa_column=Column(String))  # Added in v0.7.0
+    app_version: str | None = None  # Made optional in v0.7.0
     timestamp: int
     annotations: str  # JSON string of list[KVPair]
     device_configuration: str  # JSON string
 
-    # RasterConfig fields
-    patterns: str  # JSON string
-    stepsize: float
+    # RasterConfig fields (made optional in v0.7.0 for collection variant)
+    patterns: str | None = None  # JSON string
+    stepsize: float | None = None
     reference_point: str | None = None  # JSON string
     acquire_ref_every: int | None = None
 
@@ -197,26 +243,39 @@ class RasterInfoDB(GRDBBase, table=True):
     @classmethod
     def from_api(
         cls: type[RasterInfoDB],
-        config: RasterConfig,
         meta: RasterMetadata,
         device: DeviceMetadata,
+        config: RasterConfig | None = None,
     ) -> RasterInfoDB:
+        # Validate variant-config consistency
+        if meta.variant == "raster" and config is None:
+            msg = "raster_config is required when variant='raster'"
+            raise ValueError(msg)
+        if meta.variant != "raster" and config is not None:
+            msg = "raster_config should be None when variant is not 'raster'"
+            raise ValueError(msg)
+
         return cls(
             id=meta.raster_id,
             device_serial_number=device.device_serial_number,
             device_firmware_version=device.device_firmware_version,
+            variant=meta.variant,
             app_version=meta.app_version,
             timestamp=meta.timestamp,
             annotations=json.dumps([a.model_dump() for a in meta.annotations]),
             device_configuration=json.dumps(meta.device_configuration),
-            patterns=json.dumps([p.model_dump() for p in config.patterns]),
-            stepsize=config.stepsize,
-            reference_point=(
-                json.dumps(config.reference_point.model_dump())
-                if config.reference_point
+            patterns=(
+                json.dumps([p.model_dump() for p in config.patterns])
+                if config
                 else None
             ),
-            acquire_ref_every=config.acquire_ref_every,
+            stepsize=config.stepsize if config else None,
+            reference_point=(
+                json.dumps(config.reference_point.model_dump())
+                if config and config.reference_point
+                else None
+            ),
+            acquire_ref_every=config.acquire_ref_every if config else None,
             user_coordinates=(
                 json.dumps(meta.user_coordinates.model_dump(mode="json"))
                 if meta.user_coordinates
@@ -224,12 +283,14 @@ class RasterInfoDB(GRDBBase, table=True):
             ),
             repetitions_config=(
                 json.dumps(config.repetitions_config.model_dump())
-                if config.repetitions_config
+                if config and config.repetitions_config
                 else None
             ),
         )
 
-    def to_raster_config(self: RasterInfoDB) -> RasterConfig:
+    def to_raster_config(self: RasterInfoDB) -> RasterConfig | None:
+        if self.patterns is None or self.stepsize is None:
+            return None
         return RasterConfig(
             patterns=[
                 RasterPattern.model_validate(p) for p in json.loads(self.patterns)
@@ -256,6 +317,7 @@ class RasterInfoDB(GRDBBase, table=True):
 
     def to_raster_metadata(self: RasterInfoDB) -> RasterMetadata:
         return RasterMetadata(
+            variant=self.variant,
             raster_id=self.id,
             app_version=self.app_version,
             timestamp=self.timestamp,
@@ -283,7 +345,7 @@ class PulseDB(GRDBBase, table=True):
     y: float | None
     z: float | None
     reference: UUID | None
-    variant: TraceVariant
+    variant: TraceVariant = Field(sa_column=Column(String))
     noise: UUID | None
     pass_number: int | None
     annotations: str | None = Field(
@@ -299,9 +361,9 @@ class PulseDB(GRDBBase, table=True):
             signal=signal_bytes,
             timestamp=result.pulse.timestamp,
             uuid=result.pulse.uuid,
-            x=result.point.x,
-            y=result.point.y,
-            z=result.point.z,
+            x=result.point.x if result.point else None,
+            y=result.point.y if result.point else None,
+            z=result.point.z if result.point else None,
             reference=result.reference,
             variant=result.variant,
             pass_number=result.pass_number,
@@ -325,14 +387,23 @@ class PulseDB(GRDBBase, table=True):
             y=None,
             z=None,
             reference=None,
-            variant=TraceVariant.other,
+            variant="other",
             annotations=json.dumps([]),
             pass_number=None,
         )
 
     def to_measurement(
-        self: PulseDB, stitching: list[PulseComposition] | None
+        self: PulseDB,
+        stitching: list[PulseComposition] | None,
+        averaged_from: list[Trace] | None,
     ) -> Measurement:
+        # Return None if all coordinates are None (collection-type data without spatial info)
+        # Otherwise create Point3D (for backward compatibility with raster data)
+        point = (
+            None
+            if self.x is None and self.y is None and self.z is None
+            else Point3D(x=self.x, y=self.y, z=self.z)
+        )
         return Measurement(
             pulse=Trace(
                 uuid=self.uuid,
@@ -341,8 +412,9 @@ class PulseDB(GRDBBase, table=True):
                 time=self.unpack_floats(self.time),
                 signal=self.unpack_floats(self.signal),
                 derived_from=stitching,
+                averaged_from=averaged_from,
             ),
-            point=Point3D(x=self.x, y=self.y, z=self.z),
+            point=point,
             reference=self.reference,
             variant=self.variant,
             pass_number=self.pass_number,
@@ -392,18 +464,27 @@ class PulseDB(GRDBBase, table=True):
 class PulseCompositionTable(GRDBBase, table=True):
     """Associates a derived pulse with its source pulses.
 
-    A "final" (stitched) pulse is represented as a normal PulseDB. Its composition is captured here by linking the
-    derived pulse UUID to one or more source pulse UUIDs in a defined order.
+    A "final" (stitched or averaged) pulse is represented as a normal PulseDB. Its composition is captured here by
+    linking the derived pulse UUID to one or more source pulse UUIDs.
     """
 
     __tablename__ = "pulse_composition"
     __table_args__ = (
         UniqueConstraint("final_uuid", "position"),
         UniqueConstraint("final_uuid", "source_uuid"),
+        CheckConstraint(
+            "("
+            "composition_type = 'stitch' AND position IS NOT NULL AND shift IS NOT NULL"
+            ") OR ("
+            "composition_type = 'average' AND position IS NULL AND shift IS NULL"
+            ")",
+            name="ck_pulse_composition_type_fields",
+        ),
     )
 
     id: int | None = Field(default=None, primary_key=True)
     final_uuid: UUID = Field(foreign_key="pulses.uuid", index=True)
     source_uuid: UUID = Field(foreign_key="pulses.uuid", index=True)
-    position: int
-    shift: float
+    position: int | None
+    shift: float | None
+    composition_type: PulseCompositionType = Field(sa_column=Column(String))

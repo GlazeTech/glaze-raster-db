@@ -22,6 +22,7 @@ from grdb.models import (
     RasterInfoDB,
     RasterMetadata,
     SchemaVersion,
+    Trace,
     TraceVariant,
 )
 
@@ -35,9 +36,9 @@ if TYPE_CHECKING:
 
 def create_db(
     path: Path,
-    raster_config: RasterConfig,
     device_metadata: DeviceMetadata,
     raster_metadata: RasterMetadata,
+    raster_config: RasterConfig | None = None,
 ) -> None:
     """Create a new raster DB file and save metadata.
 
@@ -47,16 +48,18 @@ def create_db(
 
     Args:
         path: Destination SQLite file path.
-        raster_config: Acquisition configuration.
         device_metadata: Device information.
-        raster_metadata: Session metadata.
+        raster_metadata: Session metadata (includes variant field).
+        raster_config: Acquisition configuration (required for raster variant).
     """
     engine = create_engine(f"sqlite:///{path}", echo=False, poolclass=NullPool)
     create_tables(engine)
 
     with Session(engine) as session:
         raster_info = RasterInfoDB.from_api(
-            raster_config, raster_metadata, device_metadata
+            raster_metadata,
+            device_metadata,
+            raster_config,
         )
 
         session.add(SchemaVersion())
@@ -79,18 +82,22 @@ def add_pulses(
     with Session(_make_engine(path)) as session:
         pulse_objs = [PulseDB.from_measurement(p) for p in pulses]
         session.add_all(pulse_objs)
-        session.commit()
 
         # Persist composition info for any stitched sample pulses
-        _persist_pulse_compositions(session, pulses)
+        for measurement in pulses:
+            _maybe_add_stitched(session, measurement.pulse)
+            _maybe_add_averaged(session, measurement.pulse)
+
+        session.commit()
 
 
 def load_metadata(
     path: Path,
-) -> tuple[RasterConfig, DeviceMetadata, RasterMetadata, int, int]:
+) -> tuple[RasterConfig | None, DeviceMetadata, RasterMetadata, int, int]:
     """Load configuration, device, and session metadata from the DB.
 
     Returns the metadata along with counts of reference and sample pulses.
+    raster_config will be None for collection-type datasets.
 
     Args:
         path: SQLite DB file path.
@@ -109,14 +116,10 @@ def load_metadata(
         # Only count user-facing (final) pulses, excluding any used as sources
         final_filter = ~PulseDB.uuid.in_(select(PulseCompositionTable.source_uuid))  # type: ignore[attr-defined]
         n_reference_pulses = session.exec(
-            select(func.count()).where(
-                final_filter, PulseDB.variant == TraceVariant.reference
-            )
+            select(func.count()).where(final_filter, PulseDB.variant == "reference")
         ).one()
         n_sample_pulses = session.exec(
-            select(func.count()).where(
-                final_filter, PulseDB.variant == TraceVariant.sample
-            )
+            select(func.count()).where(final_filter, PulseDB.variant == "sample")
         ).one()
 
         return (
@@ -134,31 +137,35 @@ def load_pulses(
     limit: int,
     variant: TraceVariant | None = None,
 ) -> list[Measurement]:
-    """Load a batch of user-facing pulses with stitching info.
+    """Load a batch of user-facing pulses with composition info.
 
     Returns a list of Measurement objects. Only final pulses (those not used
-    as sources in any final pulse, e.g., through stitching) are included.
+    as sources in any final pulse, e.g., through stitching or averaging) are included.
     If a pulse is stitched from components, its ``pulse.derived_from``
-    contains ordered source pulse metadata. If ``variant`` is provided, only
-    pulses of that variant are returned; otherwise, all variants are returned.
+    contains ordered source pulse metadata. If a pulse is averaged from sources,
+    its ``pulse.averaged_from`` contains the source traces. If ``variant`` is provided,
+    only pulses of that variant are returned; otherwise, all variants are returned.
     """
     with Session(_make_engine(path)) as session:
-        final_pulses = _get_final_pulses(
+        final_pulse_rows = _get_final_pulse_rows(
             session, offset=offset, limit=limit, variant=variant
         )
 
-        final_pulse_sources = _get_final_pulse_sources(
-            session, [p.uuid for p in final_pulses]
+        final_pulse_compositions = _get_pulse_compositions(
+            session, [p.uuid for p in final_pulse_rows]
         )
 
-        sources = _get_source_measurements(session, final_pulse_sources)
+        sources, all_compositions = _load_all_sources(session, final_pulse_compositions)
 
         results: list[Measurement] = []
-        for final_pulse in final_pulses:
-            stitching = _build_stitching_info(
-                final_pulse.uuid, final_pulse_sources, sources
+        for final_pulse in final_pulse_rows:
+            stitching = _maybe_build_stitching_info(
+                final_pulse.uuid, all_compositions, sources
             )
-            results.append(final_pulse.to_measurement(stitching))
+            averaging = _maybe_build_averaging_info(
+                final_pulse.uuid, all_compositions, sources
+            )
+            results.append(final_pulse.to_measurement(stitching, averaging))
 
         return results
 
@@ -185,31 +192,49 @@ def update_annotations(
         session.commit()
 
 
-def _persist_pulse_compositions(
-    session: Session, results: Sequence[Measurement]
-) -> None:
-    """Persist composition metadata and source pulses for stitched results.
+def _maybe_add_stitched(session: Session, trace: Trace) -> None:
+    """Persist compositions for stitched pulses.
 
-    For each Measurement that has ``pulse.derived_from`` defined, ensure that:
-    - Each source BaseTrace exists as a PulseDB row (with minimal fields)
-    - A PulseCompositionTable row links the final pulse to each source with
-      the recorded position and shift.
+    If the trace has derived_from (stitching info), persists each source pulse
+    and its composition metadata.
     """
-    for res in results:
-        if not res.pulse.derived_from:
-            continue
-        for measurement in res.pulse.derived_from:
-            session.add(PulseDB.from_basetrace(measurement.pulse))
+    if trace.derived_from:
+        for comp in trace.derived_from:
+            session.add(PulseDB.from_basetrace(comp.pulse))
             session.add(
                 PulseCompositionTable(
-                    final_uuid=res.pulse.uuid,
-                    source_uuid=measurement.pulse.uuid,
-                    position=measurement.position,
-                    shift=measurement.shift,
+                    final_uuid=trace.uuid,
+                    source_uuid=comp.pulse.uuid,
+                    position=comp.position,
+                    shift=comp.shift,
+                    composition_type="stitch",
                 )
             )
 
-    session.commit()
+
+def _maybe_add_averaged(session: Session, trace: Trace) -> None:
+    """Persist compositions for averaged pulses.
+
+    If the trace has averaged_from, persists each source trace and its composition
+    metadata. Averaged sources can be stitched, but cannot be averaged (no nested
+    averaging allowed).
+    """
+    if trace.averaged_from:
+        for source_trace in trace.averaged_from:
+            session.add(PulseDB.from_basetrace(source_trace))
+            session.add(
+                PulseCompositionTable(
+                    final_uuid=trace.uuid,
+                    source_uuid=source_trace.uuid,
+                    position=None,
+                    shift=None,
+                    composition_type="average",
+                )
+            )
+
+            # An averaged pulse can consist of multiple stitched sources;
+            # recursively persist compositions of this nested source
+            _maybe_add_stitched(session, source_trace)
 
 
 def _make_engine(path: Path) -> Engine:
@@ -247,7 +272,7 @@ def _get_schema_version(engine: Engine) -> int | None:
             return version.version if version else None
 
 
-def _get_final_pulses(
+def _get_final_pulse_rows(
     session: Session, offset: int, limit: int, variant: TraceVariant | None = None
 ) -> Sequence[PulseDB]:
     """Return pulses not used as a source in any composition (aka final pulses).
@@ -263,12 +288,12 @@ def _get_final_pulses(
     return session.exec(stmt).all()
 
 
-def _get_final_pulse_sources(
-    session: Session, derived_ids: Sequence[UUID]
+def _get_pulse_compositions(
+    session: Session, final_ids: Sequence[UUID]
 ) -> dict[UUID, list[PulseCompositionTable]]:
     """Fetch source rows for the given final pulse UUIDs."""
     stmt = select(PulseCompositionTable).where(
-        PulseCompositionTable.final_uuid.in_(list(derived_ids))  # type: ignore[attr-defined]
+        PulseCompositionTable.final_uuid.in_(list(final_ids))  # type: ignore[attr-defined]
     )
     rows = session.exec(stmt).all()
     grouped: dict[UUID, list[PulseCompositionTable]] = {}
@@ -277,41 +302,133 @@ def _get_final_pulse_sources(
     return grouped
 
 
-def _get_source_measurements(
-    session: Session, final_pulse_sources: dict[UUID, list[PulseCompositionTable]]
-) -> dict[UUID, BaseTrace]:
-    """Load all source pulses and map them to BaseTrace by UUID."""
-    source_ids: set[UUID] = set()
-    for composition_rows in final_pulse_sources.values():
-        for row in composition_rows:
-            source_ids.add(row.source_uuid)
-
-    if not source_ids:
-        return {}
-
-    stmt = select(PulseDB).where(PulseDB.uuid.in_(list(source_ids)))  # type: ignore[attr-defined]
-    src_pulses = session.exec(stmt).all()
-    return {sp.uuid: sp.to_basetrace() for sp in src_pulses}
+def _extract_unprocessed_source_uuids(
+    compositions: dict[UUID, list[PulseCompositionTable]],
+    processed_uuids: set[UUID],
+) -> list[UUID]:
+    """Extract source UUIDs from compositions that haven't been processed yet."""
+    unprocessed: list[UUID] = []
+    for comp_list in compositions.values():
+        for comp_row in comp_list:
+            if comp_row.source_uuid not in processed_uuids:
+                unprocessed.append(comp_row.source_uuid)  # noqa: PERF401
+    return unprocessed
 
 
-def _build_stitching_info(
+def _load_all_sources(
+    session: Session,
+    pulse_sources: dict[UUID, list[PulseCompositionTable]],
+) -> tuple[dict[UUID, BaseTrace], dict[UUID, list[PulseCompositionTable]]]:
+    """Load all source pulses and their compositions recursively.
+
+    Returns (sources, all_compositions) where sources maps UUID -> BaseTrace
+    and all_compositions maps UUID -> list of composition rows.
+    """
+    all_sources: dict[UUID, BaseTrace] = {}
+    all_compositions = dict(pulse_sources)
+    processed_uuids: set[UUID] = set()
+
+    # Get initial source UUIDs from final pulse compositions (all unprocessed)
+    to_load = [
+        comp_row.source_uuid
+        for comp_list in pulse_sources.values()
+        for comp_row in comp_list
+    ]
+
+    # Recursively load source pulses and source pulse's compositions
+    while to_load:
+        current_batch = to_load
+        to_load = []
+
+        # Load pulse data for current batch
+        stmt = select(PulseDB).where(PulseDB.uuid.in_(current_batch))  # type: ignore[attr-defined]
+        pulses = session.exec(stmt).all()
+        for pulse in pulses:
+            all_sources[pulse.uuid] = pulse.to_basetrace()
+            processed_uuids.add(pulse.uuid)
+
+        # Load composition info for current batch
+        batch_comps = _get_pulse_compositions(session, current_batch)
+        all_compositions.update(batch_comps)
+
+        # Add newly discovered sources to the queue
+        newly_discovered = _extract_unprocessed_source_uuids(
+            batch_comps, processed_uuids
+        )
+        to_load.extend(newly_discovered)
+
+    return all_sources, all_compositions
+
+
+def _maybe_build_stitching_info(
     derived_uuid: UUID,
-    final_pulse_sources: dict[UUID, list[PulseCompositionTable]],
+    all_compositions: dict[UUID, list[PulseCompositionTable]],
     sources: dict[UUID, BaseTrace],
 ) -> list[PulseComposition] | None:
-    """Create ordered stitching info for a derived pulse, if compositions exist."""
-    comp_rows = final_pulse_sources.get(derived_uuid)
+    """Create ordered stitching info for a derived pulse, if stitch compositions exist."""
+    comp_rows = all_compositions.get(derived_uuid)
     if not comp_rows:
         return None
 
-    comp_rows_sorted = sorted(comp_rows, key=lambda r: r.position)
+    # Filter for stitch-type compositions only
+    stitch_rows = [r for r in comp_rows if r.composition_type == "stitch"]
+    if not stitch_rows:
+        return None
+
+    # Sort by position (guaranteed non-None for stitch type by check constraint)
+    stitch_rows_sorted = sorted(stitch_rows, key=lambda r: r.position or 0)
     stitching: list[PulseComposition] = [
         PulseComposition(
             pulse=sources[row.source_uuid],
             position=row.position,
             shift=row.shift,
         )
-        for row in comp_rows_sorted
-        if row.source_uuid in sources
+        for row in stitch_rows_sorted
     ]
     return stitching or None
+
+
+def _maybe_build_averaging_info(
+    derived_uuid: UUID,
+    all_compositions: dict[UUID, list[PulseCompositionTable]],
+    sources: dict[UUID, BaseTrace],
+) -> list[Trace] | None:
+    """Create averaging info for a derived pulse, if average compositions exist.
+
+    Note: Averaged sources can be stitched, but cannot themselves be averaged
+    (no nested averaging allowed).
+    """
+    comp_rows = all_compositions.get(derived_uuid)
+    if not comp_rows:
+        return None
+
+    # Filter for average-type compositions only
+    average_rows = [r for r in comp_rows if r.composition_type == "average"]
+    if not average_rows:
+        return None
+
+    # Build Trace objects for averaged sources
+    # Note: averaged sources can be stitched, but cannot be averaged (no nested averaging)
+    averaging: list[Trace] = []
+    for row in average_rows:
+        if row.source_uuid not in sources:
+            continue
+
+        # Check if this averaged source is itself stitched
+        source_stitching = _maybe_build_stitching_info(
+            row.source_uuid, all_compositions, sources
+        )
+
+        averaging.append(
+            Trace(
+                time=sources[row.source_uuid].time,
+                signal=sources[row.source_uuid].signal,
+                uuid=sources[row.source_uuid].uuid,
+                timestamp=sources[row.source_uuid].timestamp,
+                noise=sources[row.source_uuid].noise,
+                derived_from=source_stitching,
+                averaged_from=None,  # No nested averaging allowed
+            )
+        )
+
+    return averaging or None

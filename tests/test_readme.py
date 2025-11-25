@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 from glaze_cicd_utils.doctest import DoctestDep, check_markdown_file
 
 from grdb.crud import add_pulses, create_db
-from grdb.models import TraceVariant
 from tests.mock import make_dummy_measurement, make_dummy_metadata
 
 if TYPE_CHECKING:
@@ -32,14 +31,14 @@ class ReadmeDep(DoctestDep):
 
         # Create database with metadata
         config, device, meta = make_dummy_metadata()
-        create_db(db_path, config, device, meta)
+        create_db(db_path, device, meta, config)
 
         # Add sample pulses (enough to satisfy the README examples)
-        samples = make_dummy_measurement(variant=TraceVariant.sample)
+        samples = make_dummy_measurement(variant="sample")
         add_pulses(db_path, samples)
 
         # Add reference pulses
-        references = make_dummy_measurement(variant=TraceVariant.reference)
+        references = make_dummy_measurement(variant="reference")
         add_pulses(db_path, references)
 
     def teardown(self: ReadmeDep) -> None:
