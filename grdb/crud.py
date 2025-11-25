@@ -17,7 +17,6 @@ from grdb.models import (
     Measurement,
     PulseComposition,
     PulseCompositionTable,
-    PulseCompositionType,
     PulseDB,
     RasterConfig,
     RasterInfoDB,
@@ -118,12 +117,12 @@ def load_metadata(
         final_filter = ~PulseDB.uuid.in_(select(PulseCompositionTable.source_uuid))  # type: ignore[attr-defined]
         n_reference_pulses = session.exec(
             select(func.count()).where(
-                final_filter, PulseDB.variant == TraceVariant.reference
+                final_filter, PulseDB.variant == "reference"
             )
         ).one()
         n_sample_pulses = session.exec(
             select(func.count()).where(
-                final_filter, PulseDB.variant == TraceVariant.sample
+                final_filter, PulseDB.variant == "sample"
             )
         ).one()
 
@@ -212,7 +211,7 @@ def _maybe_add_stitched(session: Session, trace: Trace) -> None:
                     source_uuid=comp.pulse.uuid,
                     position=comp.position,
                     shift=comp.shift,
-                    composition_type=PulseCompositionType.stitch,
+                    composition_type="stitch",
                 )
             )
 
@@ -233,7 +232,7 @@ def _maybe_add_averaged(session: Session, trace: Trace) -> None:
                     source_uuid=source_trace.uuid,
                     position=None,
                     shift=None,
-                    composition_type=PulseCompositionType.average,
+                    composition_type="average",
                 )
             )
 
@@ -377,7 +376,7 @@ def _maybe_build_stitching_info(
 
     # Filter for stitch-type compositions only
     stitch_rows = [
-        r for r in comp_rows if r.composition_type == PulseCompositionType.stitch
+        r for r in comp_rows if r.composition_type == "stitch"
     ]
     if not stitch_rows:
         return None
@@ -411,7 +410,7 @@ def _maybe_build_averaging_info(
 
     # Filter for average-type compositions only
     average_rows = [
-        r for r in comp_rows if r.composition_type == PulseCompositionType.average
+        r for r in comp_rows if r.composition_type == "average"
     ]
     if not average_rows:
         return None

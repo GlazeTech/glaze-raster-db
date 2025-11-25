@@ -16,7 +16,6 @@ from grdb import (
 from grdb.core import create_tables
 from grdb.models import (
     BaseTrace,
-    DatasetVariant,
     DeviceMetadata,
     KVPair,
     Measurement,
@@ -26,7 +25,6 @@ from grdb.models import (
     RasterMetadata,
     SchemaVersion,
     Trace,
-    TraceVariant,
 )
 from tests.mock import (
     make_dummy_measurement,
@@ -44,7 +42,7 @@ def test_pack_unpack_floats_roundtrip() -> None:
 
 def test_crud_create_and_load(db_path: Path) -> None:
     config, device, meta = make_dummy_metadata()
-    refs = make_dummy_measurement(variant=TraceVariant.reference)
+    refs = make_dummy_measurement(variant="reference")
 
     create_db(db_path, device, meta, config)
     # Add references after DB creation
@@ -69,20 +67,20 @@ def test_crud_create_and_load(db_path: Path) -> None:
 def test_append_and_batch(db_path: Path) -> None:
     config, device, meta = make_dummy_metadata()
     refs = make_dummy_measurement(
-        variant=TraceVariant.reference
-    ) + make_dummy_measurement(composed_of_n=2, variant=TraceVariant.reference)
-    sams = make_dummy_measurement(variant=TraceVariant.sample) + make_dummy_measurement(
-        composed_of_n=2, variant=TraceVariant.sample
+        variant="reference"
+    ) + make_dummy_measurement(composed_of_n=2, variant="reference")
+    sams = make_dummy_measurement(variant="sample") + make_dummy_measurement(
+        composed_of_n=2, variant="sample"
     )
     create_db(db_path, device, meta, config)
 
     # Add references and samples after DB creation
     add_pulses(db_path, sams + refs)
     refs_loaded = load_pulses(
-        db_path, offset=0, limit=1000, variant=TraceVariant.reference
+        db_path, offset=0, limit=1000, variant="reference"
     )
     samples_loaded = load_pulses(
-        db_path, offset=0, limit=1000, variant=TraceVariant.sample
+        db_path, offset=0, limit=1000, variant="sample"
     )
 
     _assert_measurements_are_equal(refs, refs_loaded)
@@ -139,21 +137,21 @@ def test_backward_load_compatibility() -> None:
 
             # Assert we can add and load pulses
             refs_existing = load_pulses(
-                temp_path, offset=0, limit=1000, variant=TraceVariant.reference
+                temp_path, offset=0, limit=1000, variant="reference"
             )
             sams_existing = load_pulses(
-                temp_path, offset=0, limit=1000, variant=TraceVariant.sample
+                temp_path, offset=0, limit=1000, variant="sample"
             )
             variants = make_measurement_variants()
-            ref_variants = [m for m in variants if m.variant == TraceVariant.reference]
-            sam_variants = [m for m in variants if m.variant == TraceVariant.sample]
+            ref_variants = [m for m in variants if m.variant == "reference"]
+            sam_variants = [m for m in variants if m.variant == "sample"]
             add_pulses(temp_path, variants)
             # Load references and samples using the new API filter
             refs_loaded = load_pulses(
-                temp_path, offset=0, limit=1_000_000, variant=TraceVariant.reference
+                temp_path, offset=0, limit=1_000_000, variant="reference"
             )
             sams_loaded = load_pulses(
-                temp_path, offset=0, limit=1_000_000, variant=TraceVariant.sample
+                temp_path, offset=0, limit=1_000_000, variant="sample"
             )
             _assert_measurements_are_equal(refs_existing + ref_variants, refs_loaded)
             _assert_measurements_are_equal(sams_existing + sam_variants, sams_loaded)
@@ -228,7 +226,7 @@ def test_create_collection_db(db_path: Path) -> None:
         device_firmware_version="v2.0.0",
     )
     meta = RasterMetadata(
-        variant=DatasetVariant.collection,
+        variant="collection",
         app_version="test_app",
         timestamp=1234567890,
         annotations=[KVPair(key="dataset", value="test_collection")],
@@ -243,7 +241,7 @@ def test_create_collection_db(db_path: Path) -> None:
 
     assert loaded_config is None  # No raster config for collection variant
     assert loaded_device == device
-    assert loaded_meta.variant == DatasetVariant.collection
+    assert loaded_meta.variant == "collection"
     assert loaded_meta.app_version == meta.app_version
     assert n_ref == 0
     assert n_samp == 0
@@ -257,7 +255,7 @@ def test_collection_db_with_none_points(db_path: Path) -> None:
         device_firmware_version="v2.0.0",
     )
     meta = RasterMetadata(
-        variant=DatasetVariant.collection,
+        variant="collection",
         timestamp=1234567890,
         annotations=[],
         device_configuration={},
@@ -268,9 +266,9 @@ def test_collection_db_with_none_points(db_path: Path) -> None:
     # Create measurements with None points
     measurements = [
         Measurement(
-            pulse=make_dummy_measurement(TraceVariant.sample)[0].pulse,
+            pulse=make_dummy_measurement("sample")[0].pulse,
             point=None,  # No spatial coordinates
-            variant=TraceVariant.sample,
+            variant="sample",
         )
         for _ in range(3)
     ]
@@ -288,7 +286,7 @@ def test_raster_variant_requires_config(db_path: Path) -> None:
         device_firmware_version="v2.0.0",
     )
     meta = RasterMetadata(
-        variant=DatasetVariant.raster,  # Raster variant
+        variant="raster",  # Raster variant
         timestamp=1234567890,
         annotations=[],
         device_configuration={},
@@ -307,7 +305,7 @@ def test_collection_variant_rejects_config(db_path: Path) -> None:
     config, device, _ = make_dummy_metadata()
 
     meta = RasterMetadata(
-        variant=DatasetVariant.collection,  # Collection variant
+        variant="collection",  # Collection variant
         timestamp=1234567890,
         annotations=[],
         device_configuration={},

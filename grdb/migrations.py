@@ -7,7 +7,6 @@ from sqlmodel import Session, select
 from grdb.core import create_tables
 from grdb.models import (
     PulseCompositionTable,
-    PulseCompositionType,
     PulseDB,
     RasterInfoDB,
     SchemaVersion,
@@ -112,7 +111,7 @@ def _migrate_to_v5(engine: Engine) -> None:
                 else row.source_uuid,
                 position=row.position,
                 shift=row.shift,
-                composition_type=PulseCompositionType.stitch,
+                composition_type="stitch",
             )
             session.add(new_row)
         session.commit()

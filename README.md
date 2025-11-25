@@ -91,7 +91,7 @@ A `Measurement` object contains the following fields:
   - `y` (float | None): Y coordinate  
   - `z` (float | None): Z coordinate
 
-- **`variant`** (`TraceVariant`): The type of measurement, one of:
+- **`variant`** (str): The type of measurement, one of:
   - `"reference"`: Reference measurement taken at a known location
   - `"sample"`: Sample measurement taken on the object being scanned
   - `"noise"`: Noise measurement for baseline correction

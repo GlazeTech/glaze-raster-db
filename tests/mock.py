@@ -11,7 +11,6 @@ from grdb.models import (
     AxisMap,
     BaseTrace,
     CoordinateTransform,
-    DatasetVariant,
     DeviceMetadata,
     KVPair,
     Measurement,
@@ -48,7 +47,7 @@ def make_dummy_metadata() -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]
         device_firmware_version="v1.0.0",
     )
     meta = RasterMetadata(
-        variant=DatasetVariant.raster,
+        variant="raster",
         app_version="app1",
         timestamp=161803398,
         annotations=[KVPair(key="foo", value="bar"), KVPair(key="baz", value=1.0)],
@@ -181,7 +180,7 @@ def make_measurement_variants() -> list[Measurement]:
     def build(  # noqa: PLR0913
         *,
         point: Point3D | None = None,
-        variant: TraceVariant | None = TraceVariant.sample,
+        variant: TraceVariant | None = "sample",
         annotations: list[KVPair] | None = None,
         composed_of_n: int | None = 0,
         reference_uuid: uuid.UUID | None = None,
@@ -190,7 +189,7 @@ def make_measurement_variants() -> list[Measurement]:
         averaged_of_n: int | None = 0,
         averaged_of_n_composed_of_n: int | None = 0,
     ) -> Measurement:
-        variant = variant or TraceVariant.sample
+        variant = variant or "sample"
         composed_of_n = composed_of_n or 0
         averaged_of_n = averaged_of_n or 0
         averaged_of_n_composed_of_n = averaged_of_n_composed_of_n or 0
@@ -212,12 +211,12 @@ def make_measurement_variants() -> list[Measurement]:
     def build_with_potential_ref(*, with_ref: bool = False) -> list[Measurement]:
         built = []
         if with_ref:
-            ref = build(variant=TraceVariant.reference)
+            ref = build(variant="reference")
             ref_uuid = ref.pulse.uuid
             built.append(ref)
         else:
             ref_uuid = None
-        noise = build(variant=TraceVariant.noise)
+        noise = build(variant="noise")
         noise_uuid = noise.pulse.uuid
         built.extend(
             [
@@ -226,10 +225,10 @@ def make_measurement_variants() -> list[Measurement]:
                 build(composed_of_n=2, reference_uuid=ref_uuid, noise=noise_uuid),
                 build(point=Point3D(x=1.0, y=2.0, z=3.0), reference_uuid=ref_uuid),
                 build(point=Point3D(x=4.0, y=None, z=6.0), reference_uuid=ref_uuid),
-                build(variant=TraceVariant.reference, reference_uuid=ref_uuid),
-                build(variant=TraceVariant.sample, reference_uuid=ref_uuid),
-                build(variant=TraceVariant.noise, reference_uuid=ref_uuid),
-                build(variant=TraceVariant.other, reference_uuid=ref_uuid),
+                build(variant="reference", reference_uuid=ref_uuid),
+                build(variant="sample", reference_uuid=ref_uuid),
+                build(variant="noise", reference_uuid=ref_uuid),
+                build(variant="other", reference_uuid=ref_uuid),
                 build(
                     annotations=[KVPair(key="s", value="v")], reference_uuid=ref_uuid
                 ),

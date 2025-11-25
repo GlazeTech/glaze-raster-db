@@ -3,12 +3,11 @@ from __future__ import annotations
 import json
 import struct
 import time
-from enum import Enum
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, model_validator
-from sqlalchemy import CheckConstraint, MetaData, UniqueConstraint
+from sqlalchemy import CheckConstraint, Column, MetaData, String, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 GRDB_METADATA = MetaData()
@@ -18,22 +17,10 @@ CURRENT_SCHEMA_VERSION = 6
 Axis = Literal["x", "y", "z"]
 Sign = Literal[1, -1]
 
-
-class TraceVariant(str, Enum):
-    reference = "reference"
-    sample = "sample"
-    noise = "noise"
-    other = "other"
-
-
-class DatasetVariant(str, Enum):
-    raster = "raster"
-    collection = "collection"
-
-
-class PulseCompositionType(str, Enum):
-    stitch = "stitch"
-    average = "average"
+# String literal types for variants and composition types
+TraceVariant = Literal["reference", "sample", "noise", "other"]
+DatasetVariant = Literal["raster", "collection"]
+PulseCompositionType = Literal["stitch", "average"]
 
 
 class GRDBBase(SQLModel, metadata=GRDB_METADATA):
@@ -235,7 +222,7 @@ class RasterInfoDB(GRDBBase, table=True):
     device_firmware_version: str
 
     # RasterMetadata fields
-    variant: DatasetVariant  # Added in v0.7.0
+    variant: DatasetVariant = Field(sa_column=Column(String))  # Added in v0.7.0
     app_version: str | None = None  # Made optional in v0.7.0
     timestamp: int
     annotations: str  # JSON string of list[KVPair]
@@ -261,10 +248,10 @@ class RasterInfoDB(GRDBBase, table=True):
         config: RasterConfig | None = None,
     ) -> RasterInfoDB:
         # Validate variant-config consistency
-        if meta.variant == DatasetVariant.raster and config is None:
+        if meta.variant == "raster" and config is None:
             msg = "raster_config is required when variant='raster'"
             raise ValueError(msg)
-        if meta.variant != DatasetVariant.raster and config is not None:
+        if meta.variant != "raster" and config is not None:
             msg = "raster_config should be None when variant is not 'raster'"
             raise ValueError(msg)
 
@@ -358,7 +345,7 @@ class PulseDB(GRDBBase, table=True):
     y: float | None
     z: float | None
     reference: UUID | None
-    variant: TraceVariant
+    variant: TraceVariant = Field(sa_column=Column(String))
     noise: UUID | None
     pass_number: int | None
     annotations: str | None = Field(
@@ -400,7 +387,7 @@ class PulseDB(GRDBBase, table=True):
             y=None,
             z=None,
             reference=None,
-            variant=TraceVariant.other,
+            variant="other",
             annotations=json.dumps([]),
             pass_number=None,
         )
@@ -500,4 +487,4 @@ class PulseCompositionTable(GRDBBase, table=True):
     source_uuid: UUID = Field(foreign_key="pulses.uuid", index=True)
     position: int | None
     shift: float | None
-    composition_type: PulseCompositionType
+    composition_type: PulseCompositionType = Field(sa_column=Column(String))
