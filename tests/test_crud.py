@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, delete
+from sqlalchemy.pool import NullPool
 from sqlmodel import Session
 
 from grdb import (
@@ -178,7 +179,7 @@ def test_create_db_and_unlink_file(db_path: Path) -> None:
 def test_load_metadata_empty_db(db_path: Path) -> None:
     """Test that load_metadata raises ValueError on a database with no metadata."""
     # Create a proper database with schema
-    engine = create_engine(f"sqlite:///{db_path}")
+    engine = create_engine(f"sqlite:///{db_path}", poolclass=NullPool)
     create_tables(engine)
 
     # Add schema version but delete all metadata rows
@@ -197,7 +198,7 @@ def test_load_metadata_empty_db(db_path: Path) -> None:
 def test_update_annotations_empty_db(db_path: Path) -> None:
     """Test that update_annotations raises ValueError on a database with no metadata."""
     # Create a proper database with schema
-    engine = create_engine(f"sqlite:///{db_path}")
+    engine = create_engine(f"sqlite:///{db_path}", poolclass=NullPool)
     create_tables(engine)
 
     # Add schema version but delete all metadata rows
