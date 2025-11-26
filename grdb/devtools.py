@@ -38,11 +38,13 @@ if TYPE_CHECKING:
 
 def make_dummy_metadata(
     device_serial_number: str | None = None,
+    raster_id: uuid.UUID | None = None,
 ) -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]:
     """Create dummy metadata for testing.
 
     Args:
         device_serial_number: Optional device serial number. Defaults to "123-ABC".
+        raster_id: Optional raster ID. Defaults to None.
 
     Returns:
         Tuple containing RasterConfig, DeviceMetadata, and RasterMetadata
@@ -67,6 +69,7 @@ def make_dummy_metadata(
     meta = RasterMetadata(
         variant="raster",
         app_version="app1",
+        raster_id=raster_id,
         timestamp=161803398,
         annotations=[KVPair(key="foo", value="bar"), KVPair(key="baz", value=1.0)],
         device_configuration={"mode": "test"},
@@ -333,6 +336,7 @@ def make_measurement_variants() -> list[Measurement]:
 def make_dummy_database(
     path: Path,
     device_serial_number: str | None = None,
+    raster_id: uuid.UUID | None = None,
 ) -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]:
     """Create a dummy database at the specified path for testing.
 
@@ -342,13 +346,15 @@ def make_dummy_database(
     Args:
         path: Path where the .grf database file will be created.
         device_serial_number: Optional device serial number. Defaults to "123-ABC".
+        raster_id: Optional raster ID. Defaults to None.
 
     Returns:
         Tuple containing the RasterConfig, DeviceMetadata, and RasterMetadata
         that were used to create the database.
     """
     config, device, meta = make_dummy_metadata(
-        device_serial_number=device_serial_number
+        device_serial_number=device_serial_number,
+        raster_id=raster_id,
     )
     measurements = make_measurement_variants()
 
