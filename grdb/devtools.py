@@ -12,7 +12,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING
 
-from grdb import add_pulses, create_db
+from grdb.crud import add_pulses, create_db
 from grdb.models import (
     AxesMapping,
     AxisMap,
