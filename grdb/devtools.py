@@ -36,8 +36,13 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def make_dummy_metadata() -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]:
+def make_dummy_metadata(
+    device_serial_number: str | None = None,
+) -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]:
     """Create dummy metadata for testing.
+
+    Args:
+        device_serial_number: Optional device serial number. Defaults to "123-ABC".
 
     Returns:
         Tuple containing RasterConfig, DeviceMetadata, and RasterMetadata
@@ -56,7 +61,7 @@ def make_dummy_metadata() -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]
         repetitions_config=RepetitionsConfig(passes=3, interval_millisecs=30_000),
     )
     device = DeviceMetadata(
-        device_serial_number="123-ABC",
+        device_serial_number=device_serial_number or "123-ABC",
         device_firmware_version="v1.0.0",
     )
     meta = RasterMetadata(
@@ -325,7 +330,10 @@ def make_measurement_variants() -> list[Measurement]:
     )
 
 
-def make_dummy_database(path: Path) -> None:
+def make_dummy_database(
+    path: Path,
+    device_serial_number: str | None = None,
+) -> tuple[RasterConfig, DeviceMetadata, RasterMetadata]:
     """Create a dummy database at the specified path for testing.
 
     This function creates a complete test database with diverse measurements
@@ -333,9 +341,17 @@ def make_dummy_database(path: Path) -> None:
 
     Args:
         path: Path where the .grf database file will be created.
+        device_serial_number: Optional device serial number. Defaults to "123-ABC".
+
+    Returns:
+        Tuple containing the RasterConfig, DeviceMetadata, and RasterMetadata
+        that were used to create the database.
     """
-    config, device, meta = make_dummy_metadata()
+    config, device, meta = make_dummy_metadata(
+        device_serial_number=device_serial_number
+    )
     measurements = make_measurement_variants()
 
     create_db(path, device, meta, config)
     add_pulses(path, measurements)
+    return (config, device, meta)
