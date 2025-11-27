@@ -1,11 +1,7 @@
 import argparse
-import sys
 from pathlib import Path
 
-# Add parent directory to path so we can import from tests module
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from tests.mock import make_dummy_database
+from grdb import make_dummy_database
 
 
 def main() -> None:
@@ -19,7 +15,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    make_dummy_database(Path(args.path))
+    make_dummy_database(Path(args.path), device_serial_number="X-9999")
 
 
 if __name__ == "__main__":

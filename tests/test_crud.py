@@ -15,6 +15,7 @@ from grdb import (
     update_annotations,
 )
 from grdb.core import create_tables
+from grdb.devtools import make_dummy_database
 from grdb.models import (
     BaseTrace,
     DeviceMetadata,
@@ -313,6 +314,20 @@ def test_collection_variant_rejects_config(db_path: Path) -> None:
         ValueError, match="raster_config should be None when variant is not 'raster'"
     ):
         create_db(db_path, device, meta, config)  # Config should not be provided
+
+
+def test_make_dummy_database(db_path: Path) -> None:
+    """Test that make_dummy_database creates a file."""
+    config, device, meta = make_dummy_database(db_path)
+
+    # Verify the file exists
+    assert db_path.exists()
+    assert db_path.stat().st_size > 0
+
+    # Verify we got metadata back
+    assert config is not None
+    assert device is not None
+    assert meta is not None
 
 
 def _assert_measurements_are_equal(
