@@ -201,11 +201,12 @@ def update_references(
 
     Args:
         path: SQLite DB file path.
-        measurement_ids: Pulse UUIDs whose ``reference`` field should be updated.
+        measurement_ids: Pulse IDs whose ``reference`` field should be updated.
         reference_uuid: Reference UUID to assign (use None to clear).
     """
     if not measurement_ids:
-        return
+        msg = "measurement_ids cannot be empty"
+        raise ValueError(msg)
 
     with Session(_make_engine(path)) as session:
         pulse_ids = list(measurement_ids)
@@ -230,7 +231,6 @@ def update_references(
 
         for pulse in pulses:
             pulse.reference = reference_uuid
-            session.add(pulse)
 
         session.commit()
 
