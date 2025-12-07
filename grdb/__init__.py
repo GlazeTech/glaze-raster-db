@@ -7,6 +7,7 @@ from .crud import (
     load_metadata,
     load_pulses,
     update_annotations,
+    update_references,
 )
 from .devtools import make_dummy_database
 
@@ -18,4 +19,5 @@ __all__ = [
     "load_pulses",
     "make_dummy_database",
     "update_annotations",
+    "update_references",
 ]
