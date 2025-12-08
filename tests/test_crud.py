@@ -1,5 +1,6 @@
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from grdb import (
     load_metadata,
     load_pulses,
     update_annotations,
+    update_references,
 )
 from grdb.core import create_tables
 from grdb.devtools import make_dummy_database
@@ -214,6 +216,74 @@ def test_update_annotations_empty_db(db_path: Path) -> None:
     annotations = [KVPair(key="test", value=123)]
     with pytest.raises(ValueError, match="No metadata found in DB"):
         update_annotations(db_path, annotations)
+
+
+def test_update_references_assigns_and_clears(db_path: Path) -> None:
+    config, device, meta = make_dummy_metadata()
+    reference = make_dummy_measurement(variant="reference", n_results=1)[0]
+    samples = make_dummy_measurement(variant="sample", n_results=3)
+
+    create_db(db_path, device, meta, config)
+    add_pulses(db_path, [reference, *samples])
+
+    loaded_samples = load_pulses(db_path, offset=0, limit=100, variant="sample")
+    assert all(sample.reference is None for sample in loaded_samples)
+
+    update_references(
+        db_path,
+        [sample.pulse.uuid for sample in loaded_samples],
+        reference.pulse.uuid,
+    )
+
+    updated_samples = load_pulses(db_path, offset=0, limit=100, variant="sample")
+    assert all(sample.reference == reference.pulse.uuid for sample in updated_samples)
+
+    sample_to_clear = updated_samples[0].pulse.uuid
+    update_references(db_path, [sample_to_clear], None)
+
+    cleared_samples = load_pulses(db_path, offset=0, limit=100, variant="sample")
+    cleared_by_uuid = {sample.pulse.uuid: sample for sample in cleared_samples}
+    assert cleared_by_uuid[sample_to_clear].reference is None
+    for pulse_uuid, sample in cleared_by_uuid.items():
+        if pulse_uuid == sample_to_clear:
+            continue
+        assert sample.reference == reference.pulse.uuid
+
+
+def test_update_references_missing_uuid(db_path: Path) -> None:
+    config, device, meta = make_dummy_metadata()
+    sample = make_dummy_measurement(variant="sample", n_results=1)[0]
+
+    create_db(db_path, device, meta, config)
+    add_pulses(db_path, [sample])
+
+    missing_uuid = uuid.uuid4()
+    with pytest.raises(ValueError, match="Pulse UUIDs not found"):
+        update_references(
+            db_path, [sample.pulse.uuid, missing_uuid], reference_uuid=None
+        )
+
+    loaded_samples = load_pulses(db_path, offset=0, limit=10, variant="sample")
+    assert loaded_samples[0].reference is None
+
+
+def test_update_references_missing_reference_uuid(db_path: Path) -> None:
+    config, device, meta = make_dummy_metadata()
+    samples = make_dummy_measurement(variant="sample", n_results=2)
+
+    create_db(db_path, device, meta, config)
+    add_pulses(db_path, samples)
+
+    missing_reference = uuid.uuid4()
+    with pytest.raises(ValueError, match="Reference UUID not found"):
+        update_references(
+            db_path,
+            [sample.pulse.uuid for sample in samples],
+            reference_uuid=missing_reference,
+        )
+
+    unchanged_samples = load_pulses(db_path, offset=0, limit=10, variant="sample")
+    assert all(sample.reference is None for sample in unchanged_samples)
 
 
 def test_create_collection_db(db_path: Path) -> None:

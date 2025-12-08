@@ -192,6 +192,49 @@ def update_annotations(
         session.commit()
 
 
+def update_references(
+    path: Path,
+    measurement_ids: Sequence[UUID],
+    reference_uuid: UUID | None,
+) -> None:
+    """Update the reference UUID for the given measurements.
+
+    Args:
+        path: SQLite DB file path.
+        measurement_ids: Pulse IDs whose ``reference`` field should be updated.
+        reference_uuid: Reference UUID to assign (use None to clear).
+    """
+    if not measurement_ids:
+        msg = "measurement_ids cannot be empty"
+        raise ValueError(msg)
+
+    with Session(_make_engine(path)) as session:
+        pulse_ids = list(measurement_ids)
+        pulses = session.exec(
+            select(PulseDB).where(PulseDB.uuid.in_(pulse_ids))  # type: ignore[attr-defined]
+        ).all()
+
+        found_ids = {pulse.uuid for pulse in pulses}
+        missing_ids = set(pulse_ids) - found_ids
+        if missing_ids:
+            missing_str = ", ".join(str(missing) for missing in missing_ids)
+            msg = f"Pulse UUIDs not found: {missing_str}"
+            raise ValueError(msg)
+
+        if reference_uuid is not None:
+            ref_exists = session.exec(
+                select(PulseDB.uuid).where(PulseDB.uuid == reference_uuid)
+            ).first()
+            if ref_exists is None:
+                msg = f"Reference UUID not found: {reference_uuid}"
+                raise ValueError(msg)
+
+        for pulse in pulses:
+            pulse.reference = reference_uuid
+
+        session.commit()
+
+
 def _maybe_add_stitched(session: Session, trace: Trace) -> None:
     """Persist compositions for stitched pulses.
 

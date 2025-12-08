@@ -1,4 +1,4 @@
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 # Re-export public API functions for convenient imports, e.g.:
 from .crud import (
@@ -7,6 +7,7 @@ from .crud import (
     load_metadata,
     load_pulses,
     update_annotations,
+    update_references,
 )
 from .devtools import make_dummy_database
 
@@ -18,4 +19,5 @@ __all__ = [
     "load_pulses",
     "make_dummy_database",
     "update_annotations",
+    "update_references",
 ]
