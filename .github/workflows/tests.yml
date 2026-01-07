@@ -22,7 +22,7 @@ jobs:
           ssh-private-key: ${{ secrets.GLAZE_CICD_UTILS_SECRET }}
       - name: Run pytest
         run: pytest --cov=grdb --cov-report term --cov-fail-under=90
-  mypy:
+  ty:
     timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
@@ -32,8 +32,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           ssh-private-key: ${{ secrets.GLAZE_CICD_UTILS_SECRET }}
-      - name: Run mypy
-        run: mypy .
+      - name: Run ty
+        run: ty check .
   ruff:
     timeout-minutes: 15
     runs-on: ubuntu-latest

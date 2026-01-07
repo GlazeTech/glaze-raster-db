@@ -94,7 +94,7 @@ def _migrate_to_v5(engine: Engine) -> None:
 
     # Copy data from old table to new, setting composition_type to 'stitch'
     with Session(engine) as session:
-        old_rows = session.exec(  # type: ignore[call-overload]
+        old_rows = session.exec(
             text(
                 f"SELECT id, final_uuid, source_uuid, position, shift FROM {old_table_name}"  # noqa: S608
             )
