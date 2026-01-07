@@ -35,7 +35,7 @@ jobs:
       - name: Verify installation
         run: pip list
       - name: Run ty
-        run: ty check .
+        run: python -m ty check .
   ruff:
     timeout-minutes: 15
     runs-on: ubuntu-latest
