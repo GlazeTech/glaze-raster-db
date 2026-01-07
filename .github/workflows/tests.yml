@@ -32,6 +32,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           ssh-private-key: ${{ secrets.GLAZE_CICD_UTILS_SECRET }}
+      - name: Verify installation
+        run: pip list
       - name: Run ty
         run: ty check .
   ruff:
